@@ -46,6 +46,7 @@ model Company {
 enum Role {
   SUPER_ADMIN // Mestre do SaaS
   OWNER       // Dono da Empresa (Frota)
+  MANAGER     // Gestor Administrativo
   DRIVER      // Motorista
   ASSISTANT   // Auxiliar (Monitor)
   PARENT      // Pai do aluno
@@ -72,6 +73,12 @@ model UserCompany {
   role         Role     @default(DRIVER)
   status       String   @default("INVITED") // INVITED, ACTIVE, SUSPENDED, ARCHIVED
   contractType String   @default("FULL_TIME") // FULL_TIME ou FREELANCE
+  
+  // Feature Flags (Permissões Granulares)
+  canManageFinance Boolean @default(false)
+  canManageHR      Boolean @default(false)
+  canManageRoutes  Boolean @default(false)
+  
   token        String?  @unique // Token do link de convite
   joinedAt     DateTime @default(now())
   leftAt       DateTime?
