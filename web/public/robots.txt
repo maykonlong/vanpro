@@ -1,0 +1,17 @@
+# VanPro Elite SaaS - Regras para Robôs de Busca
+
+User-agent: *
+
+# Permitir indexação da Landing Page e rotas públicas
+Allow: /
+Allow: /invite/*
+
+# Bloquear indexação de painéis privados (Segurança/Privacidade)
+Disallow: /dashboard/*
+Disallow: /financial/*
+Disallow: /team/*
+Disallow: /my-earnings/*
+Disallow: /api/*
+
+# Opcional: Sitemap
+# Sitemap: https://app.vanpro.com/sitemap.xml
