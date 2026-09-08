@@ -1,0 +1,320 @@
+{
+  "vehicles": [
+    {
+      "id": "v1",
+      "tenantId": "transvan_tenant_01",
+      "name": "Van 01 - Ford Transit 2024",
+      "plate": "ABC-1D23",
+      "model": "Ford Transit Executive",
+      "year": 2024,
+      "capacity": 15,
+      "currentKm": 42800,
+      "avgKmPerLiter": 8.8,
+      "driver": "Carlos Oliveira",
+      "status": "Em Rota",
+      "createdAt": "2026-09-08T17:37:21.198Z"
+    },
+    {
+      "id": "v2",
+      "tenantId": "transvan_tenant_01",
+      "name": "Van 02 - Mercedes Sprinter",
+      "plate": "XYZ-9E87",
+      "model": "Mercedes-Benz Sprinter 516",
+      "year": 2023,
+      "capacity": 19,
+      "currentKm": 78500,
+      "avgKmPerLiter": 7.9,
+      "driver": "Pedro Santos",
+      "status": "Livre / Frete",
+      "createdAt": "2026-09-08T17:37:21.199Z"
+    },
+    {
+      "id": "v3",
+      "tenantId": "transvan_tenant_01",
+      "name": "Van 03 - Renault Master",
+      "plate": "KRM-4F55",
+      "model": "Renault Master Minibus",
+      "year": 2022,
+      "capacity": 16,
+      "currentKm": 112000,
+      "avgKmPerLiter": 8.2,
+      "driver": "Marcos Lima",
+      "status": "Revisão",
+      "createdAt": "2026-09-08T17:37:21.199Z"
+    }
+  ],
+  "students": [
+    {
+      "id": "s1",
+      "tenantId": "transvan_tenant_01",
+      "name": "João Rodrigues",
+      "school": "Colégio Dom Pedro II",
+      "grade": "6º Ano A",
+      "shift": "MORNING",
+      "pickupAddress": "Rua Haddock Lobo, 400",
+      "dropoffAddress": "Av. Paulista, 1500",
+      "monthlyFee": 580,
+      "dueDay": 10,
+      "status": "ABSENT",
+      "createdAt": "2026-09-08T17:37:21.199Z",
+      "addresses": [
+        {
+          "dayOfWeek": "ALL",
+          "pickupAddress": "Rua Haddock Lobo, 400",
+          "dropoffAddress": "Av. Paulista, 1500",
+          "label": "Residência Principal"
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "tenantId": "transvan_tenant_01",
+      "name": "Ana Rodrigues",
+      "school": "Colégio Dom Pedro II",
+      "grade": "3º Ano B",
+      "shift": "MORNING",
+      "pickupAddress": "Rua Haddock Lobo, 400",
+      "dropoffAddress": "Av. Paulista, 1500",
+      "monthlyFee": 520,
+      "dueDay": 10,
+      "status": "PENDING",
+      "createdAt": "2026-09-08T17:37:21.199Z",
+      "addresses": [
+        {
+          "dayOfWeek": "ALL",
+          "pickupAddress": "Rua Haddock Lobo, 400",
+          "dropoffAddress": "Av. Paulista, 1500",
+          "label": "Residência Principal"
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "tenantId": "transvan_tenant_01",
+      "name": "Pedro Henrique Lima",
+      "school": "Escola Santa Catarina",
+      "grade": "7º Ano C",
+      "shift": "MORNING",
+      "pickupAddress": "Rua Bela Cintra, 950",
+      "dropoffAddress": "Rua Augusta, 800",
+      "monthlyFee": 600,
+      "dueDay": 5,
+      "status": "PENDING",
+      "createdAt": "2026-09-08T17:37:21.199Z",
+      "addresses": [
+        {
+          "dayOfWeek": "ALL",
+          "pickupAddress": "Rua Bela Cintra, 950",
+          "dropoffAddress": "Rua Augusta, 800",
+          "label": "Residência Principal"
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "tenantId": "transvan_tenant_01",
+      "name": "Beatriz Santos",
+      "school": "Colégio Dom Pedro II",
+      "grade": "5º Ano A",
+      "shift": "MORNING",
+      "pickupAddress": "Alameda Santos, 1200",
+      "dropoffAddress": "Av. Paulista, 1500",
+      "monthlyFee": 550,
+      "dueDay": 10,
+      "status": "ABSENT",
+      "createdAt": "2026-09-08T17:37:21.199Z",
+      "addresses": [
+        {
+          "dayOfWeek": "ALL",
+          "pickupAddress": "Alameda Santos, 1200",
+          "dropoffAddress": "Av. Paulista, 1500",
+          "label": "Residência Principal"
+        }
+      ]
+    },
+    {
+      "id": "s_1788889757042",
+      "tenantId": "transvan_tenant_01",
+      "name": "Aluno 2",
+      "school": "Escola 1",
+      "grade": "5 A",
+      "monthlyFee": 550,
+      "dueDay": 10,
+      "discountPercentage": 0,
+      "negotiationNotes": "",
+      "shift": "MORNING",
+      "addresses": [
+        {
+          "dayOfWeek": "MON",
+          "pickupAddress": "casa 1 (Casa da Mãe)",
+          "dropoffAddress": "Escola",
+          "label": "Casa da Mãe"
+        },
+        {
+          "dayOfWeek": "WED",
+          "pickupAddress": "casa 1 (Casa da Mãe)",
+          "dropoffAddress": "Escola",
+          "label": "Casa da Mãe"
+        },
+        {
+          "dayOfWeek": "TUE",
+          "pickupAddress": "casa 2 (Casa do Pai)",
+          "dropoffAddress": "Escola",
+          "label": "Casa do Pai"
+        },
+        {
+          "dayOfWeek": "THU",
+          "pickupAddress": "casa 2 (Casa do Pai)",
+          "dropoffAddress": "Escola",
+          "label": "Casa do Pai"
+        },
+        {
+          "dayOfWeek": "FRI",
+          "pickupAddress": "casa 1 (Casa da Mãe)",
+          "dropoffAddress": "Escola",
+          "label": "Casa da Mãe"
+        }
+      ],
+      "status": "PENDING",
+      "createdAt": "2026-09-08T17:49:17.042Z"
+    }
+  ],
+  "financials": [
+    {
+      "id": "f1",
+      "tenantId": "transvan_tenant_01",
+      "vehicleId": "v1",
+      "type": "INCOME",
+      "category": "MONTHLY_FEE",
+      "description": "Mensalidades Escolares Van 01 (42 Alunos)",
+      "amount": 14800,
+      "referenceMonth": "2026-09",
+      "paid": true,
+      "dueDate": "2026-09-10",
+      "createdAt": "2026-09-08T17:37:21.199Z"
+    },
+    {
+      "id": "f2",
+      "tenantId": "transvan_tenant_01",
+      "vehicleId": "v2",
+      "type": "INCOME",
+      "category": "FREIGHT_REVENUE",
+      "description": "Frete Fim de Semana - Viagem Campos do Jordão",
+      "amount": 2400,
+      "referenceMonth": "2026-09",
+      "paid": true,
+      "dueDate": "2026-09-05",
+      "createdAt": "2026-09-08T17:37:21.199Z"
+    },
+    {
+      "id": "f3",
+      "tenantId": "transvan_tenant_01",
+      "vehicleId": "v1",
+      "type": "EXPENSE",
+      "category": "FUEL",
+      "description": "Abastecimentos Diesel S10 - Van 01",
+      "amount": 2150,
+      "referenceMonth": "2026-09",
+      "paid": true,
+      "dueDate": "2026-09-08",
+      "createdAt": "2026-09-08T17:37:21.199Z"
+    },
+    {
+      "id": "f4",
+      "tenantId": "transvan_tenant_01",
+      "vehicleId": "v1",
+      "type": "EXPENSE",
+      "category": "MAINTENANCE",
+      "description": "Troca de Óleo e Filtros Van 01",
+      "amount": 650,
+      "referenceMonth": "2026-09",
+      "paid": true,
+      "dueDate": "2026-08-15",
+      "createdAt": "2026-09-08T17:37:21.199Z"
+    },
+    {
+      "id": "f5",
+      "tenantId": "transvan_tenant_01",
+      "vehicleId": "v1",
+      "type": "EXPENSE",
+      "category": "SALARY",
+      "description": "Salário Motorista Carlos",
+      "amount": 3500,
+      "referenceMonth": "2026-09",
+      "paid": true,
+      "dueDate": "2026-09-05",
+      "createdAt": "2026-09-08T17:37:21.199Z"
+    },
+    {
+      "id": "f6",
+      "tenantId": "transvan_tenant_01",
+      "vehicleId": "v1",
+      "type": "EXPENSE",
+      "category": "INSURANCE",
+      "description": "Seguro Mensal Frota Van 01",
+      "amount": 420,
+      "referenceMonth": "2026-09",
+      "paid": false,
+      "dueDate": "2026-09-15",
+      "createdAt": "2026-09-08T17:37:21.199Z"
+    },
+    {
+      "id": "f_1788889757042",
+      "tenantId": "transvan_tenant_01",
+      "vehicleId": "v1",
+      "type": "INCOME",
+      "category": "MONTHLY_FEE",
+      "description": "Mensalidade Aluno: Aluno 2 (Valor negociado)",
+      "amount": 550,
+      "referenceMonth": "2026-09",
+      "paid": false,
+      "dueDate": "2026-09-10",
+      "createdAt": "2026-09-08T17:49:17.042Z"
+    }
+  ],
+  "freights": [
+    {
+      "id": "fr1",
+      "tenantId": "transvan_tenant_01",
+      "clientName": "TechCorp Eventos",
+      "clientPhone": "(11) 99999-5555",
+      "serviceType": "EVENT",
+      "origin": "Faria Lima, 2000",
+      "destination": "Hotel Fasano Boa Vista",
+      "distanceKm": 110,
+      "estimatedFuelCost": 145,
+      "tollCost": 48,
+      "suggestedPrice": 950,
+      "finalPrice": 1100,
+      "status": "APPROVED",
+      "scheduledDate": "2026-09-12T14:00:00Z",
+      "createdAt": "2026-09-08T17:37:21.199Z"
+    }
+  ],
+  "driverSchedules": [],
+  "maintenances": [],
+  "fuelLogs": [],
+  "crmLeads": [],
+  "contracts": [],
+  "notifications": [],
+  "occurrences": [],
+  "socialPosts": [],
+  "pixPayments": [],
+  "nfseRecords": [],
+  "driverTimecards": [
+    {
+      "id": "tc_1788891000475",
+      "tenantId": "transvan_tenant_01",
+      "driverName": "Carlos Oliveira",
+      "vehicleId": "v1",
+      "clockIn": "2026-09-08T18:10:00.475Z",
+      "startKm": 42800,
+      "shiftType": "CLT",
+      "dailyRate": 180,
+      "status": "CLOSED",
+      "clockOut": "2026-09-08T18:10:08.466Z",
+      "endKm": 42885
+    }
+  ],
+  "users": []
+}

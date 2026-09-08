@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(PARENT) // OWNER, DRIVER, ASSISTANT, PARENT
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  OWNER
+  DRIVER
+  ASSISTANT
+  PARENT
+}
+
+model Vehicle {
+  id         String   @id @default(uuid())
+  plate      String   @unique
+  capacity   Int
+  km         Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  Timecards  Timecard[]
+}
+
+model Driver {
+  id         String   @id @default(uuid())
+  name       String
+  userId     String?  @unique // Link to User for auth
+  role       Role     @default(DRIVER)
+  shiftType  String   // "CLT" | "DIARIA"
+  dailyRate  Float    @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  Timecards  Timecard[]
+}
+
+model Student {
+  id        String   @id @default(uuid())
+  name      String
+  school    String
+  shift     String   // MORNING, AFTERNOON
+  monthlyFee Float   @default(0)
+  status    String   @default("PENDING") // PENDING, BOARDED, DELIVERED, ABSENT
+  parentId  String?  // Reference to User table
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Timecard {
+  id          String   @id @default(uuid())
+  driverId    String
+  vehicleId   String
+  status      String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  driver      Driver   @relation(fields: [driverId], references: [id])
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
+  punches     Punch[]
+}
+
+model Punch {
+  id         String   @id @default(uuid())
+  timecardId String
+  type       String   // CLOCK_IN, LUNCH_START, LUNCH_END, CLOCK_OUT
+  time       DateTime @default(now())
+  km         Int      @default(0)
+  
+  timecard   Timecard @relation(fields: [timecardId], references: [id])
+}
+
+model Occurrence {
+  id          String   @id @default(uuid())
+  type        String   // TRAFFIC, BREAKDOWN, ACCIDENT, BEHAVIOR, DELAY
+  description String
+  status      String   @default("OPEN")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Freight {
+  id          String   @id @default(uuid())
+  clientName  String
+  destination String
+  date        DateTime
+  price       Float
+  status      String   @default("BUDGET") // BUDGET, CONFIRMED, COMPLETED, CANCELED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
