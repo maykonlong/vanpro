@@ -18,9 +18,11 @@ import timecardRoutes from './routes/timecardRoutes';
 import authRoutes from './routes/authRoutes';
 import webhookRoutes from './routes/webhookRoutes';
 import uploadRoutes from './routes/uploadRoutes';
+import privacyRoutes from './routes/privacyRoutes';
 import { authMiddleware } from './middlewares/authMiddleware';
 import { setupWebSockets } from './websockets';
 import './jobs/billingCron'; // Iniciar CronJobs
+import './jobs/lgpdCron'; // Iniciar Purge LGPD
 import path from 'path';
 
 const app = express();
@@ -95,6 +97,7 @@ app.use('/api/v1/students', authMiddleware, studentRoutes);
 app.use('/api/v1/financial', authMiddleware, financialRoutes);
 app.use('/api/v1/timecards', authMiddleware, timecardRoutes);
 app.use('/api/v1/uploads', authMiddleware, uploadRoutes);
+app.use('/api/v1/privacy', authMiddleware, privacyRoutes);
 
 // Inicializar WebSockets
 setupWebSockets(io);

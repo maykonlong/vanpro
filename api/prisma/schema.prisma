@@ -185,6 +185,8 @@ model Student {
   latitude    Float?
   longitude   Float?
 
+  deleteRequestStatus String? @default("NONE") // NONE, PENDING_APPROVAL, DELETED
+
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   deletedAt  DateTime? // Soft Delete (Fase 13)
