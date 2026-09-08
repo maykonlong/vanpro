@@ -37,6 +37,7 @@ model Company {
   students         Student[]
   timecards        Timecard[]
   financials       FinancialTransaction[]
+  expenses         Expense[]
 }
 
 // ----------------------------------------------------
@@ -61,6 +62,7 @@ model User {
   contracts UserCompany[]
   auditLogs AuditLog[]
   notes     Note[]
+  expenses  Expense[] // Ganhos/Pagamentos atrelados a este usuário
 }
 
 model UserCompany {
@@ -155,6 +157,25 @@ model FinancialTransaction {
 
   company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   student    Student  @relation(fields: [studentId], references: [id])
+}
+
+// Fase 19: Saídas (Despesas e DRE)
+model Expense {
+  id          String   @id @default(uuid())
+  companyId   String
+  description String
+  amount      Float
+  category    String   // FUEL, MAINTENANCE, PAYROLL, TAXES, OTHER
+  date        DateTime @default(now())
+  vehicleId   String?  // Gasto atrelado a veículo (Manutenção/Combustível)
+  employeeId  String?  // Gasto atrelado a funcionário (Pagamento/Diária)
+  receiptUrl  String?  // Link do cupom fiscal/comprovante
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vehicle     Vehicle? @relation(fields: [vehicleId], references: [id])
+  employee    User?    @relation(fields: [employeeId], references: [id])
 }
 
 // ----------------------------------------------------
