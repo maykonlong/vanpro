@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Users, Link as LinkIcon, Ban, ArchiveX, ShieldAlert, CheckCircle2, ShieldPlus, X, Lock } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { Tooltip } from '../../components/Tooltip';
 
 type TeamMember = {
   id: string;
@@ -124,7 +125,10 @@ export const TeamManagement: React.FC = () => {
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 lg:p-8 flex flex-col gap-6 justify-between">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h2 className="text-xl font-bold text-white mb-2">Convidar novo membro</h2>
+            <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+              Convidar novo membro
+              <Tooltip content="Envie este link para o WhatsApp do Motorista. Ele criará a senha dele lá." />
+            </h2>
             <p className="text-slate-400">Gere um link seguro para o motorista ou auxiliar ingressar na sua frota. O convite expira em 48h.</p>
           </div>
           
@@ -141,6 +145,9 @@ export const TeamManagement: React.FC = () => {
             >
               Diarista (Bico)
             </button>
+            <div className="ml-2 flex items-center">
+              <Tooltip content="Fixo: Acesso exclusivo à sua frota. Diarista: Permite que ele trabalhe para você e outras empresas ao mesmo tempo." />
+            </div>
           </div>
         </div>
         

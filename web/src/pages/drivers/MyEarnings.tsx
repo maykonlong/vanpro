@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Wallet, Calendar, DollarSign, Clock } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { Tooltip } from '../../components/Tooltip';
 
 type Earnings = {
   id: string;
@@ -43,7 +44,10 @@ export const MyEarnings: React.FC = () => {
 
       <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-3xl p-8 text-slate-950 shadow-[0_0_40px_rgba(245,158,11,0.15)] flex flex-col md:flex-row justify-between items-center gap-6">
         <div>
-          <h2 className="font-bold opacity-80 flex items-center gap-2 mb-2"><Calendar className="w-5 h-5"/> Total Recebido neste Mês</h2>
+          <h2 className="font-bold opacity-80 flex items-center gap-2 mb-2">
+            <Calendar className="w-5 h-5"/> Total Recebido neste Mês
+            <Tooltip content="Valor acumulado de todas as diárias, salários ou bonificações recebidas nos últimos 30 dias." />
+          </h2>
           <div className="text-5xl font-black tracking-tight">R$ {totalEarned.toFixed(2)}</div>
         </div>
         <div className="bg-slate-950/10 px-6 py-4 rounded-2xl backdrop-blur-sm border border-slate-950/10 flex items-center gap-4">

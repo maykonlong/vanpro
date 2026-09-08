@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, CheckCircle2, XCircle, FileText, ArrowDownCircle, ArrowUpCircle, Wallet, Plus, GasPump, Wrench, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { Tooltip } from '../../components/Tooltip';
 
 type Transaction = { id: string; student: { name: string }; amount: number; paid: boolean; dueDate: string; };
 type Expense = { id: string; description: string; amount: number; category: string; date: string; };
@@ -58,28 +59,40 @@ export const FinancialPanel: React.FC = () => {
       <div className="grid md:grid-cols-4 gap-6">
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl">
           <div className="flex justify-between items-start mb-2">
-            <span className="text-slate-400 font-medium">Entradas (Pagas)</span>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 font-medium">Entradas (Pagas)</span>
+              <Tooltip content="Soma de todas as mensalidades e serviços pagos no mês atual." />
+            </div>
             <ArrowUpCircle className="text-emerald-500 w-5 h-5" />
           </div>
           <div className="text-2xl font-bold text-white">R$ {totalIncome.toFixed(2)}</div>
         </div>
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl">
           <div className="flex justify-between items-start mb-2">
-            <span className="text-slate-400 font-medium">Saídas (Despesas)</span>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 font-medium">Saídas (Despesas)</span>
+              <Tooltip content="Total gasto com manutenção, combustível, folha de pagamento e impostos." />
+            </div>
             <ArrowDownCircle className="text-red-500 w-5 h-5" />
           </div>
           <div className="text-2xl font-bold text-white">R$ {totalExpense.toFixed(2)}</div>
         </div>
-        <div className="bg-gradient-to-br from-amber-500 to-amber-600 p-6 rounded-3xl text-slate-950">
+        <div className="bg-gradient-to-br from-amber-500 to-amber-600 p-6 rounded-3xl text-slate-950 shadow-[0_0_40px_rgba(245,158,11,0.2)]">
           <div className="flex justify-between items-start mb-2">
-            <span className="font-bold opacity-80">Lucro Líquido</span>
+            <div className="flex items-center gap-2">
+              <span className="font-bold opacity-80">Lucro Líquido</span>
+              <Tooltip content="Seu Lucro Real = (Entradas Totais) - (Saídas Totais). O que sobra limpo." />
+            </div>
             <DollarSign className="w-5 h-5" />
           </div>
           <div className="text-3xl font-black">R$ {netProfit.toFixed(2)}</div>
         </div>
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl border-dashed">
           <div className="flex justify-between items-start mb-2">
-            <span className="text-slate-400 font-medium">A Receber</span>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 font-medium">A Receber</span>
+              <Tooltip content="Faturas geradas mas que os alunos/responsáveis ainda não pagaram." />
+            </div>
             <XCircle className="text-amber-500 w-5 h-5" />
           </div>
           <div className="text-2xl font-bold text-slate-300">R$ {totalPending.toFixed(2)}</div>
