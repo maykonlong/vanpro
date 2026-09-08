@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../prisma';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 export const login = async (req: Request, res: Response) => {
   try {
@@ -18,8 +19,13 @@ export const login = async (req: Request, res: Response) => {
     }
 
     const jwtSecret = process.env.JWT_SECRET || 'super_secret_jwt_vanpro_key_123';
+    
+    // Gerar Fingerprint (Blindagem contra roubo de Token)
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const fingerprint = crypto.createHash('sha256').update(userAgent).digest('hex');
+
     const token = jwt.sign(
-      { id: user.id, role: user.role, tenantId: user.tenantId },
+      { id: user.id, role: user.role, tenantId: user.tenantId, fingerprint },
       jwtSecret,
       { expiresIn: '1d' }
     );
@@ -53,7 +59,16 @@ export const verifySession = async (req: Request, res: Response) => {
     if (!token) return res.status(401).json({ error: 'Não autorizado' });
 
     const jwtSecret = process.env.JWT_SECRET || 'super_secret_jwt_vanpro_key_123';
-    const decoded = jwt.verify(token, jwtSecret) as { id: string };
+    const decoded = jwt.verify(token, jwtSecret) as { id: string, fingerprint?: string };
+
+    // Validação de Segurança Máxima: Checar DNA do Navegador (User-Agent)
+    const currentUserAgent = req.headers['user-agent'] || 'unknown';
+    const currentFingerprint = crypto.createHash('sha256').update(currentUserAgent).digest('hex');
+
+    if (decoded.fingerprint && decoded.fingerprint !== currentFingerprint) {
+      console.warn(`🚨 [SECURITY] Tentativa de Roubo de Sessão Detectada! User ID: ${decoded.id}`);
+      return res.status(401).json({ error: 'Falha na validação de segurança do dispositivo.' });
+    }
 
     const user = await prisma.user.findUnique({ where: { id: decoded.id } });
     if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });

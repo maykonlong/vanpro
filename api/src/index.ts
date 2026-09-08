@@ -3,6 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './swagger';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import * as Sentry from '@sentry/node';
@@ -16,6 +18,7 @@ import timecardRoutes from './routes/timecardRoutes';
 import authRoutes from './routes/authRoutes';
 import webhookRoutes from './routes/webhookRoutes';
 import uploadRoutes from './routes/uploadRoutes';
+import { authMiddleware } from './middlewares/authMiddleware';
 import { setupWebSockets } from './websockets';
 import './jobs/billingCron'; // Iniciar CronJobs
 import path from 'path';
@@ -58,7 +61,16 @@ app.use(sentinelaShield());
 // Expor pasta de uploads estaticamente
 app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
-// Rate Limiting para prevenir Brute Force em rotas sensíveis
+// Rate Limiting Global (Proteção Anti-DDoS Básica)
+const globalLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  limit: 200, // Limite de 200 requisições por IP por minuto
+  message: { error: 'Tráfego excessivo. Rate limit global ativado.' }
+});
+
+app.use('/api/', globalLimiter);
+
+// Rate Limiting mais estrito para prevenir Brute Force em Login
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   limit: 5, // Limite de 5 requisições por IP
@@ -67,17 +79,22 @@ const authLimiter = rateLimit({
 
 app.use('/api/v1/auth', authLimiter);
 
+// Documentação Swagger OpenAPI
+app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 app.get('/api/v1/health', (req, res) => {
   res.json({ status: 'ok', version: '2.0.0 (VANOS)' });
 });
 
 app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/vehicles', vehicleRoutes);
-app.use('/api/v1/students', studentRoutes);
-app.use('/api/v1/financial', financialRoutes);
-app.use('/api/v1/timecards', timecardRoutes);
 app.use('/api/v1/webhooks', webhookRoutes);
-app.use('/api/v1/uploads', uploadRoutes);
+
+// Rotas Protegidas (Exigem JWT Fingerprint)
+app.use('/api/v1/vehicles', authMiddleware, vehicleRoutes);
+app.use('/api/v1/students', authMiddleware, studentRoutes);
+app.use('/api/v1/financial', authMiddleware, financialRoutes);
+app.use('/api/v1/timecards', authMiddleware, timecardRoutes);
+app.use('/api/v1/uploads', authMiddleware, uploadRoutes);
 
 // Inicializar WebSockets
 setupWebSockets(io);
