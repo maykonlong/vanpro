@@ -7,99 +7,133 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ----------------------------------------------------
+// B2B SAAS CORE - TENANTS E PLANOS
+// ----------------------------------------------------
+model SubscriptionPlan {
+  id          String    @id @default(uuid())
+  name        String    // Ex: FREE, PRO, ENTERPRISE
+  maxVehicles Int
+  maxDrivers  Int
+  price       Float
+  
+  companies   Company[]
+}
+
+model Company {
+  id               String            @id @default(uuid())
+  name             String
+  document         String            @unique // CNPJ ou CPF
+  subscriptionId   String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  plan             SubscriptionPlan  @relation(fields: [subscriptionId], references: [id])
+  
+  // Relacionamentos Inquebráveis (Multi-Tenancy)
+  users            User[]
+  vehicles         Vehicle[]
+  drivers          Driver[]
+  students         Student[]
+  timecards        Timecard[]
+  financials       FinancialTransaction[]
+}
+
+// ----------------------------------------------------
+// BUSINESS LOGIC
+// ----------------------------------------------------
+enum Role {
+  SUPER_ADMIN // Mestre do SaaS
+  OWNER       // Dono da Empresa (Frota)
+  DRIVER      // Motorista
+  ASSISTANT   // Auxiliar (Monitor)
+  PARENT      // Pai do aluno
+}
+
 model User {
   id        String   @id @default(uuid())
+  companyId String?  // Super_Admin não tem company
   name      String
   email     String   @unique
   password  String
-  role      Role     @default(PARENT) // OWNER, DRIVER, ASSISTANT, PARENT
+  role      Role     @default(PARENT)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-}
 
-enum Role {
-  OWNER
-  DRIVER
-  ASSISTANT
-  PARENT
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model Vehicle {
-  id         String   @id @default(uuid())
-  plate      String   @unique
-  capacity   Int
-  km         Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(uuid())
+  companyId String
+  plate     String   @unique
+  capacity  Int
+  km        Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  Timecards  Timecard[]
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  timecards Timecard[]
 }
 
 model Driver {
-  id         String   @id @default(uuid())
-  name       String
-  userId     String?  @unique // Link to User for auth
-  role       Role     @default(DRIVER)
-  shiftType  String   // "CLT" | "DIARIA"
-  dailyRate  Float    @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(uuid())
+  companyId String
+  name      String
+  userId    String?  @unique
+  role      Role     @default(DRIVER)
+  shiftType String   
+  dailyRate Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  Timecards  Timecard[]
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  timecards Timecard[]
 }
 
 model Student {
-  id        String   @id @default(uuid())
-  name      String
-  school    String
-  shift     String   // MORNING, AFTERNOON
-  monthlyFee Float   @default(0)
-  status    String   @default("PENDING") // PENDING, BOARDED, DELIVERED, ABSENT
-  parentId  String?  // Reference to User table
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(uuid())
+  companyId  String
+  name       String
+  school     String
+  shift      String
+  monthlyFee Float    @default(0)
+  status     String   @default("PENDING")
+  parentId   String?
+  photoUrl   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  financials FinancialTransaction[]
 }
 
 model Timecard {
-  id          String   @id @default(uuid())
-  driverId    String
-  vehicleId   String
-  status      String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
-  date        DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid())
+  companyId String
+  driverId  String
+  vehicleId String
+  status    String   @default("IN_PROGRESS")
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  driver      Driver   @relation(fields: [driverId], references: [id])
-  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
-  punches     Punch[]
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  driver    Driver   @relation(fields: [driverId], references: [id])
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id])
 }
 
-model Punch {
+model FinancialTransaction {
   id         String   @id @default(uuid())
-  timecardId String
-  type       String   // CLOCK_IN, LUNCH_START, LUNCH_END, CLOCK_OUT
-  time       DateTime @default(now())
-  km         Int      @default(0)
-  
-  timecard   Timecard @relation(fields: [timecardId], references: [id])
-}
+  companyId  String
+  studentId  String
+  amount     Float
+  paid       Boolean  @default(false)
+  dueDate    DateTime
+  externalId String?  @unique // ID do Asaas/Stripe
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-model Occurrence {
-  id          String   @id @default(uuid())
-  type        String   // TRAFFIC, BREAKDOWN, ACCIDENT, BEHAVIOR, DELAY
-  description String
-  status      String   @default("OPEN")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model Freight {
-  id          String   @id @default(uuid())
-  clientName  String
-  destination String
-  date        DateTime
-  price       Float
-  status      String   @default("BUDGET") // BUDGET, CONFIRMED, COMPLETED, CANCELED
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  student    Student  @relation(fields: [studentId], references: [id])
 }
