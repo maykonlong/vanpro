@@ -95,13 +95,13 @@ model Driver {
 model Student {
   id         String   @id @default(uuid())
   companyId  String
-  name       String
+  name       String   /// @encrypted
   school     String
   shift      String
   monthlyFee Float    @default(0)
   status     String   @default("PENDING")
   parentId   String?
-  photoUrl   String?
+  photoUrl   String?  /// @encrypted
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   deletedAt  DateTime? // Soft Delete (Fase 13)
