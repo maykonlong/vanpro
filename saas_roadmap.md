@@ -8,17 +8,19 @@ Aqui está a lista absoluta e definitiva do que falta para um SaaS de Classe Mun
 
 ## 🔐 1. Gestão de Identidade e Segurança (Identity Access Management)
 O que separa um sistema amador de um sistema corporativo.
-- **Fluxo de Recuperação (Esqueci Minha Senha):** Geração de Token temporário enviado por e-mail via BullMQ, com validade de 15 minutos, para redefinição segura de senha.
-- **Forçar Troca de Senha / Expiração:** Exigir que a senha seja trocada a cada 90 dias ou em caso de suspeita de vazamento.
-- **Autenticação em Duas Etapas (2FA):** Suporte a Google Authenticator (TOTP) obrigatório para a conta `SUPER_ADMIN` e opcional para `OWNER`.
-- **Prevenção de Account Takeover:** Bloqueio temporário (Lockout) automático após 5 tentativas de login falhas e alerta por e-mail de "Novo dispositivo conectado".
-- **Criptografia em Repouso (Data at Rest):** Criptografar dados extremamente sensíveis diretamente no banco (ex: documentos das crianças) com chaves AES-256 (KMS), impedindo vazamento mesmo se o banco de dados for roubado.
+- [x] **Prevenção de Account Takeover:** Bloqueio temporário (Rate Limit e Payload Bombing previstos) e Fingerprint de Dispositivo para roubo de sessão (Fase 25).
+- [x] **Autenticação Biométrica (WebAuthn):** Fim das senhas, login por impressão digital / Face ID integrado ao hardware via Passkeys (Fase 26).
+- [ ] **Fluxo de Recuperação (Esqueci Minha Senha):** Geração de Token temporário enviado por e-mail via BullMQ, com validade de 15 minutos, para redefinição segura de senha.
+- [ ] **Forçar Troca de Senha / Expiração:** Exigir que a senha seja trocada a cada 90 dias ou em caso de suspeita de vazamento.
+- [ ] **Autenticação em Duas Etapas (2FA):** Suporte a Google Authenticator (TOTP) obrigatório para a conta `SUPER_ADMIN` e opcional para `OWNER`.
+- [x] **Criptografia em Repouso (Data at Rest):** Dados sensíveis anonimizados e protegidos (Prisma Middleware).
 
-## 🕵️‍♂️ 2. Auditoria e Conformidade (Audit Logs)
-Essencial para resolver disputas e evitar que funcionários do SaaS destruam o banco acidentalmente.
-- **Master Audit Log (Nível SaaS):** Registro inflexível (Append-only) de tudo o que o `SUPER_ADMIN` faz. Ex: "Admin X alterou o plano da Empresa Y de FREE para PRO".
-- **Tenant Audit Log (Nível Cliente):** Log gerencial para o Dono da Frota. Ex: "Motorista Z deletou o aluno Joãozinho às 14h". Se um pai processar a van alegando que não foi avisado de algo, o log salva a empresa.
-- **Soft Delete (Lixeira Oculta):** Nunca rodar `DELETE FROM table`. Ao invés disso, alterar `deletedAt = data_atual`. Isso permite que o Super Admin recupere dados apagados acidentalmente.
+## 🕵️‍♂️ 2. Auditoria, LGPD e Observabilidade
+Essencial para resolver disputas, auditorias fiscais e vazamentos.
+- [x] **Log Forense Rotativo (Winston):** Arquivos salvos em pastas isoladas por Empresa, com deleção automática em 7 dias (Fase 28).
+- [x] **Privacidade LGPD Total:** Consentimento de imagem, Direito ao Esquecimento com CronJob diário, e Portabilidade (Takeout) com exportação JSON (Fase 27).
+- [x] **Master Audit Log (Nível Banco):** Tabela AuditLog gravando as principais mutações com identificação de ator.
+- [x] **Soft Delete (Lixeira Oculta):** Aplicado nas entidades críticas (Student, Vehicle), com data de corte para expurgo.
 
 ## 💬 3. Colaboração e Fluxo de Trabalho (Team & CRM)
 Para a frota ser gerida de forma unificada.
