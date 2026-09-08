@@ -18,23 +18,41 @@ const AuthContext = createContext<AuthContextData>({} as AuthContextData);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('@Vanpro:user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
+    // Busca os dados do usuário usando o HttpOnly cookie
+    const checkSession = async () => {
+      try {
+        const response = await fetch('http://localhost:3000/api/v1/auth/me', {
+          credentials: 'omit' // Em PRD, mude para 'include' se CORS estiver configurado via domínio
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setUser(data.user);
+        }
+      } catch (error) {
+        console.error('Sessão inválida', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    checkSession();
   }, []);
 
   const login = (userData: User) => {
     setUser(userData);
-    localStorage.setItem('@Vanpro:user', JSON.stringify(userData));
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await fetch('http://localhost:3000/api/v1/auth/logout', { method: 'POST' });
+    } catch (e) {}
     setUser(null);
-    localStorage.removeItem('@Vanpro:user');
   };
+
+  if (loading) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white">Carregando Sessão...</div>;
 
   return (
     <AuthContext.Provider value={{ user, login, logout }}>

@@ -46,3 +46,36 @@ export const login = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Erro ao autenticar' });
   }
 };
+
+export const verifySession = async (req: Request, res: Response) => {
+  try {
+    const token = req.cookies.token;
+    if (!token) return res.status(401).json({ error: 'Não autorizado' });
+
+    const jwtSecret = process.env.JWT_SECRET || 'super_secret_jwt_vanpro_key_123';
+    const decoded = jwt.verify(token, jwtSecret) as { id: string };
+
+    const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+    if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
+
+    res.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    res.status(401).json({ error: 'Sessão inválida ou expirada' });
+  }
+};
+
+export const logout = (req: Request, res: Response) => {
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict'
+  });
+  res.json({ success: true });
+};

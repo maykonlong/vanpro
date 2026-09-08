@@ -15,8 +15,10 @@ import financialRoutes from './routes/financialRoutes';
 import timecardRoutes from './routes/timecardRoutes';
 import authRoutes from './routes/authRoutes';
 import webhookRoutes from './routes/webhookRoutes';
+import uploadRoutes from './routes/uploadRoutes';
 import { setupWebSockets } from './websockets';
 import './jobs/billingCron'; // Iniciar CronJobs
+import path from 'path';
 
 const app = express();
 
@@ -41,13 +43,16 @@ const io = new Server(httpServer, {
 const port = process.env.PORT || 3000;
 
 // Security Hardening (Blindar Phase 2)
-app.use(helmet()); 
+app.use(helmet({ crossOriginResourcePolicy: false })); // false para permitir acesso local às imagens do /uploads
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true
 }));
 app.use(express.json({ limit: '1mb' })); // Previne payload bombing
 app.use(cookieParser());
+
+// Expor pasta de uploads estaticamente
+app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
 // Rate Limiting para prevenir Brute Force em rotas sensíveis
 const authLimiter = rateLimit({
@@ -68,6 +73,7 @@ app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/financial', financialRoutes);
 app.use('/api/v1/timecards', timecardRoutes);
 app.use('/api/v1/webhooks', webhookRoutes);
+app.use('/api/v1/uploads', uploadRoutes);
 
 // Inicializar WebSockets
 setupWebSockets(io);
