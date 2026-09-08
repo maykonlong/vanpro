@@ -132,6 +132,11 @@ model Student {
   status     String   @default("PENDING")
   parentId   String?
   photoUrl   String?  /// @encrypted
+  
+  // Conformidade LGPD & ECA
+  lgpdConsent Boolean @default(false)
+  consentDate DateTime?
+
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   deletedAt  DateTime? // Soft Delete (Fase 13)

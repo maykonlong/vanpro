@@ -1,11 +1,12 @@
-import React, { useEffect, useRef } from 'react';
-import { ShieldCheck, MapPin, Bus, Activity } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ShieldCheck, MapPin, Bus, Activity, FileWarning, CheckSquare } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { useGpsStore } from '../store/useGpsStore';
 
 const ParentDashboard: React.FC = () => {
   const { lat, lng, lastUpdated, setCoordinates } = useGpsStore();
   const socketRef = useRef<Socket | null>(null);
+  const [hasConsented, setHasConsented] = useState(false); // Simulação do DB: lgpdConsent
 
   useEffect(() => {
     // Conectar ao socket e inscrever na sala da Van (v1 mock)
@@ -19,7 +20,42 @@ const ParentDashboard: React.FC = () => {
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [setCoordinates]);
+  }, [setCoordinates, hasConsented]);
+
+  if (!hasConsented) {
+    return (
+      <div className="max-w-md mx-auto min-h-[600px] flex flex-col justify-center">
+        <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl space-y-6 shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-amber-500 to-amber-600"></div>
+          
+          <div className="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <FileWarning className="w-8 h-8 text-amber-500" />
+          </div>
+          
+          <div className="text-center space-y-3">
+            <h1 className="text-2xl font-extrabold text-white">Termo de Consentimento</h1>
+            <p className="text-sm text-slate-400">
+              Para a segurança do seu filho(a) e em conformidade com o <strong>ECA</strong> e a <strong>LGPD</strong> (Lei Geral de Proteção de Dados), precisamos da sua autorização para ativar o rastreamento GPS em tempo real durante o trajeto escolar.
+            </p>
+          </div>
+
+          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-400 space-y-2 h-32 overflow-y-auto">
+            <p>1. Os dados de localização são criptografados.</p>
+            <p>2. O rastreio só ocorre durante a rota escolar.</p>
+            <p>3. Você pode revogar este acesso a qualquer momento junto à coordenação da frota.</p>
+            <p>4. Nenhuma informação de geolocalização é vendida a terceiros.</p>
+          </div>
+
+          <button 
+            onClick={() => setHasConsented(true)}
+            className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold p-4 rounded-xl flex items-center justify-center gap-2 transition-colors"
+          >
+            <CheckSquare className="w-5 h-5" /> Autorizar e Acessar o App
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-md mx-auto space-y-6">
