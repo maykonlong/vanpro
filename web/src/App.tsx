@@ -6,6 +6,7 @@ import OwnerDashboard from './pages/OwnerDashboard';
 import DriverDashboard from './pages/DriverDashboard';
 import ParentDashboard from './pages/ParentDashboard';
 import AssistantDashboard from './pages/AssistantDashboard';
+import CharterManagement from './pages/owners/CharterManagement';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -36,6 +37,7 @@ function App() {
         <Route path="/" element={<PrivateRoute><MainLayout /></PrivateRoute>}>
           <Route index element={<Navigate to="/owner" replace />} />
           <Route path="owner" element={<OwnerDashboard />} />
+          <Route path="charters" element={<CharterManagement />} />
           <Route path="driver" element={<DriverDashboard />} />
           <Route path="assistant" element={<AssistantDashboard />} />
           <Route path="parent" element={<ParentDashboard />} />

@@ -38,6 +38,7 @@ model Company {
   timecards        Timecard[]
   financials       FinancialTransaction[]
   expenses         Expense[]
+  charters         Charter[]
 }
 
 // ----------------------------------------------------
@@ -101,6 +102,8 @@ model Vehicle {
 
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   timecards Timecard[]
+  expenses  Expense[] // Despesas atreladas a este veículo
+  charters  Charter[] // Viagens esporádicas agendadas para esta van
 }
 
 model Driver {
@@ -116,6 +119,7 @@ model Driver {
 
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   timecards Timecard[]
+  charters  Charter[] // Fretamentos atribuídos a este motorista
 }
 
 model Student {
@@ -215,4 +219,32 @@ model Note {
 
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   author      User     @relation(fields: [authorId], references: [id])
+}
+
+// ----------------------------------------------------
+// EVENTOS & FRETAMENTOS (Fase 21 - Viagens Esporádicas)
+// ----------------------------------------------------
+model Charter {
+  id            String   @id @default(uuid())
+  companyId     String
+  title         String   // Ex: "Excursão Praia" ou "Evento Corporativo"
+  contractor    String   // Nome de quem contratou
+  price         Float    // Valor cobrado pelo frete
+  
+  // Controle de Tempo
+  startDate     DateTime // Data e hora de início
+  endDate       DateTime // Data e hora de término (pode ser o mesmo dia ou dias depois)
+  
+  status        String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELED
+
+  // Atribuição (Quem vai e com qual Van)
+  vehicleId     String?
+  driverId      String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vehicle       Vehicle? @relation(fields: [vehicleId], references: [id])
+  driver        Driver?  @relation(fields: [driverId], references: [id])
 }

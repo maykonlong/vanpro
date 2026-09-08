@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bus, Wrench, Users, MessageSquare, Camera, Share2, BarChart3, QrCode, DollarSign, Compass, Lock } from 'lucide-react';
+import { Bus, Wrench, Users, MessageSquare, Camera, Share2, BarChart3, QrCode, DollarSign, Compass, Lock, Map } from 'lucide-react';
 
 const OwnerDashboard: React.FC = () => {
   const [subTab, setSubTab] = useState('MAIN');
@@ -25,6 +25,9 @@ const OwnerDashboard: React.FC = () => {
         </button>
         <button onClick={() => setSubTab('PAYROLL')} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 whitespace-nowrap ${subTab === 'PAYROLL' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>
           <DollarSign className="w-4 h-4" /> Diárias & Ponto
+        </button>
+        <button onClick={() => setSubTab('CHARTERS')} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 whitespace-nowrap ${subTab === 'CHARTERS' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}>
+          <Map className="w-4 h-4" /> Fretamentos (Eventos)
         </button>
       </div>
 
@@ -71,7 +74,22 @@ const OwnerDashboard: React.FC = () => {
           </div>
         )}
         
-        {subTab !== 'PAYROLL' && <p className="text-slate-400 mt-4">Módulo de {subTab} conectado ao Banco de Dados (PostgreSQL via Prisma).</p>}
+        {subTab === 'CHARTERS' && (
+          <div className="space-y-6">
+            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+              <Map className="w-5 h-5 text-amber-500" /> Gestão de Fretamentos e Eventos
+            </h2>
+            <div className="bg-amber-500/10 border border-amber-500/20 p-5 rounded-2xl flex gap-3 text-amber-300 max-w-2xl">
+              <Map className="w-8 h-8 flex-shrink-0" />
+              <div>
+                <p className="font-bold mb-1">Novo Módulo Disponível (Fase 21)</p>
+                <p className="text-sm">Acesse o menu lateral para abrir o painel completo de Fretamentos e agendar viagens esporádicas. Ideal para passeios, eventos e aluguéis por dia.</p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {subTab !== 'PAYROLL' && subTab !== 'CHARTERS' && <p className="text-slate-400 mt-4">Módulo de {subTab} conectado ao Banco de Dados (PostgreSQL via Prisma).</p>}
       </div>
     </div>
   );
