@@ -51,6 +51,10 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' })); // Previne payload bombing
 app.use(cookieParser());
 
+// WAF Local - Escudo Sentinela (Bloqueia SQLi/NoSQLi/XSS)
+import { sentinelaShield } from './middlewares/sentinelaShield';
+app.use(sentinelaShield());
+
 // Expor pasta de uploads estaticamente
 app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
