@@ -64,17 +64,18 @@ model User {
 }
 
 model UserCompany {
-  id        String   @id @default(uuid())
-  userId    String
-  companyId String
-  role      Role     @default(DRIVER)
-  status    String   @default("INVITED") // INVITED, ACTIVE, SUSPENDED, ARCHIVED
-  token     String?  @unique // Token do link de convite
-  joinedAt  DateTime @default(now())
-  leftAt    DateTime?
+  id           String   @id @default(uuid())
+  userId       String
+  companyId    String
+  role         Role     @default(DRIVER)
+  status       String   @default("INVITED") // INVITED, ACTIVE, SUSPENDED, ARCHIVED
+  contractType String   @default("FULL_TIME") // FULL_TIME ou FREELANCE
+  token        String?  @unique // Token do link de convite
+  joinedAt     DateTime @default(now())
+  leftAt       DateTime?
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([userId, companyId])
 }

@@ -13,6 +13,7 @@ type TeamMember = {
 export const TeamManagement: React.FC = () => {
   const { user } = useAuth();
   const [inviteLink, setInviteLink] = useState('');
+  const [contractType, setContractType] = useState<'FULL_TIME' | 'FREELANCE'>('FULL_TIME');
   
   // Mock Data
   const [members, setMembers] = useState<TeamMember[]>([
@@ -28,7 +29,7 @@ export const TeamManagement: React.FC = () => {
   const handleGenerateInvite = () => {
     // Simula a chamada da API gerando um token JWT de convite
     const token = Math.random().toString(36).substring(2, 15);
-    setInviteLink(`https://app.vanpro.com/invite/${token}`);
+    setInviteLink(`https://app.vanpro.com/invite/${token}?type=${contractType}`);
   };
 
   const handleCopy = () => {
@@ -49,20 +50,37 @@ export const TeamManagement: React.FC = () => {
         <h1 className="text-3xl font-bold text-white">Gestão da Equipe (RH)</h1>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 lg:p-8 flex flex-col md:flex-row gap-6 items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white mb-2">Convidar novo membro</h2>
-          <p className="text-slate-400">Gere um link seguro para o motorista ou auxiliar ingressar na sua frota. O convite expira em 48h.</p>
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 lg:p-8 flex flex-col gap-6 justify-between">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-white mb-2">Convidar novo membro</h2>
+            <p className="text-slate-400">Gere um link seguro para o motorista ou auxiliar ingressar na sua frota. O convite expira em 48h.</p>
+          </div>
+          
+          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <button 
+              onClick={() => setContractType('FULL_TIME')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${contractType === 'FULL_TIME' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+            >
+              Fixo (CLT)
+            </button>
+            <button 
+              onClick={() => setContractType('FREELANCE')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${contractType === 'FREELANCE' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+            >
+              Diarista (Bico)
+            </button>
+          </div>
         </div>
         
-        <div className="flex w-full md:w-auto gap-2">
+        <div className="flex w-full gap-2">
           {inviteLink ? (
             <>
               <input 
                 type="text" 
                 readOnly 
                 value={inviteLink} 
-                className="bg-slate-950 border border-slate-800 text-amber-500 px-4 py-3 rounded-xl w-full md:w-64 text-sm font-mono"
+                className="bg-slate-950 border border-slate-800 text-amber-500 px-4 py-3 rounded-xl w-full text-sm font-mono"
               />
               <button 
                 onClick={handleCopy}

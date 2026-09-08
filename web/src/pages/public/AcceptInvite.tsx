@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { UserPlus, ShieldAlert, CheckCircle2, Building2 } from 'lucide-react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
 export const AcceptInvite: React.FC = () => {
   const { token } = useParams();
+  const [searchParams] = useSearchParams();
+  const contractType = searchParams.get('type') || 'FULL_TIME';
+  
   const navigate = useNavigate();
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [status, setStatus] = useState<'IDLE' | 'LOADING' | 'SUCCESS'>('IDLE');
@@ -45,7 +48,8 @@ export const AcceptInvite: React.FC = () => {
 
         <h1 className="text-2xl font-bold text-center text-white mb-2">Convite para Equipe</h1>
         <p className="text-slate-400 text-center mb-8">
-          Você foi convidado para trabalhar como Motorista na frota <strong className="text-white">{companyName}</strong>.
+          Você foi convidado para trabalhar como Motorista na frota <strong className="text-white">{companyName}</strong> 
+          {contractType === 'FREELANCE' ? ' em formato de Bico (Diarista).' : ' em formato Fixo.'}
         </p>
 
         <form onSubmit={handleAccept} className="space-y-6">
@@ -58,10 +62,19 @@ export const AcceptInvite: React.FC = () => {
                 <span className="text-amber-500">•</span>
                 Você fará parte da nova empresa ({companyName}) e receberá as rotas deles.
               </li>
-              <li className="flex gap-2">
-                <span className="text-red-400">•</span>
-                Caso você pertença a outra empresa atualmente, seu contrato antigo será <strong>Arquivado</strong>.
-              </li>
+              
+              {contractType === 'FULL_TIME' ? (
+                <li className="flex gap-2">
+                  <span className="text-red-400">•</span>
+                  Caso você pertença a outra empresa atualmente, seu contrato antigo será <strong>Arquivado</strong>.
+                </li>
+              ) : (
+                <li className="flex gap-2">
+                  <span className="text-blue-400">•</span>
+                  Como este é um contrato <strong>Freelance</strong>, você NÃO perderá acesso às suas outras empresas. Você poderá alternar entre elas no painel.
+                </li>
+              )}
+              
               <li className="flex gap-2">
                 <span className="text-emerald-400">•</span>
                 Você não perderá dados antigos. Poderá visualizar planilhas passadas através do seletor "Histórico".
