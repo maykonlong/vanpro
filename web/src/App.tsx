@@ -7,6 +7,7 @@ import DriverDashboard from './pages/DriverDashboard';
 import ParentDashboard from './pages/ParentDashboard';
 import AssistantDashboard from './pages/AssistantDashboard';
 import CharterManagement from './pages/owners/CharterManagement';
+import AIMarketingPanel from './pages/owners/AIMarketingPanel';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -38,6 +39,7 @@ function App() {
           <Route index element={<Navigate to="/owner" replace />} />
           <Route path="owner" element={<OwnerDashboard />} />
           <Route path="charters" element={<CharterManagement />} />
+          <Route path="marketing" element={<AIMarketingPanel />} />
           <Route path="driver" element={<DriverDashboard />} />
           <Route path="assistant" element={<AssistantDashboard />} />
           <Route path="parent" element={<ParentDashboard />} />

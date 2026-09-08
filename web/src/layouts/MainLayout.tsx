@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { Bus, SteeringWheel, Users, LogOut, Map } from 'lucide-react';
+import { Bus, SteeringWheel, Users, LogOut, Map, Bot } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const MainLayout: React.FC = () => {
@@ -44,6 +44,19 @@ const MainLayout: React.FC = () => {
               }
             >
               <Map className="w-5 h-5" /> Fretamentos
+            </NavLink>
+          )}
+
+          {(user?.role === 'OWNER') && (
+            <NavLink
+              to="/marketing"
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all whitespace-nowrap ${
+                  isActive ? 'bg-purple-600/10 text-purple-400 border border-purple-500/30' : 'text-slate-400 hover:bg-slate-800'
+                }`
+              }
+            >
+              <Bot className="w-5 h-5 text-purple-400" /> CRM de IA
             </NavLink>
           )}
 

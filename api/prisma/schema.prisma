@@ -58,6 +58,8 @@ model Company {
   financials       FinancialTransaction[]
   expenses         Expense[]
   charters         Charter[]
+  aiCampaigns      AICampaign[]
+  aiPosts          AIPost[]
 }
 
 // ----------------------------------------------------
@@ -153,8 +155,10 @@ model Student {
   photoUrl   String?  /// @encrypted
   
   // Conformidade LGPD & ECA
-  lgpdConsent Boolean @default(false)
-  consentDate DateTime?
+  lgpdConsent   Boolean @default(false)
+  imageConsent  Boolean @default(false) // Autorização de imagem para redes sociais
+  consentDate   DateTime?
+  dateOfBirth   DateTime? // Para mensagens de Aniversário
   
   // Localização e Trajetos (Google Maps API / TSP)
   address     String?
@@ -296,4 +300,37 @@ model Charter {
   company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   vehicle       Vehicle? @relation(fields: [vehicleId], references: [id])
   driver        Driver?  @relation(fields: [driverId], references: [id])
+}
+
+// ----------------------------------------------------
+// FASE 23: CRM E MARKETING COM INTELIGÊNCIA ARTIFICIAL
+// ----------------------------------------------------
+model AICampaign {
+  id          String   @id @default(uuid())
+  companyId   String
+  name        String   // Ex: "Campanha de Férias", "Feliz Aniversário Automático"
+  template    String   // O prompt/contexto base para a IA
+  target      String   // ALL_STUDENTS, ALL_PARENTS, SPECIFIC
+  channel     String   // WHATSAPP, INSTAGRAM, EMAIL
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  posts       AIPost[]
+}
+
+model AIPost {
+  id          String   @id @default(uuid())
+  companyId   String
+  campaignId  String?
+  content     String   // O texto gerado pela LLM
+  imageUrl    String?  // Imagem anexada (ex: Card de aniversário)
+  targetId    String?  // Id do Pai ou Aluno que vai receber (se for privado)
+  channel     String   // WHATSAPP_STATUS, WHATSAPP_PRIVATE, INSTAGRAM
+  status      String   @default("DRAFT") // DRAFT (Esperando aprovação), APPROVED, PUBLISHED
+  scheduledTo DateTime?
+  createdAt   DateTime @default(now())
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  campaign    AICampaign? @relation(fields: [campaignId], references: [id])
 }
