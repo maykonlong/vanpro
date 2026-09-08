@@ -16,8 +16,22 @@ model SubscriptionPlan {
   maxVehicles Int
   maxDrivers  Int
   price       Float
+  stripePriceId String? // ID do plano no Gateway (Stripe/MercadoPago)
   
   companies   Company[]
+}
+
+model SaaSSubscription {
+  id              String   @id @default(uuid())
+  companyId       String   @unique
+  gateway         String   @default("STRIPE") // STRIPE, ASAAS, MERCADOPAGO
+  gatewaySubId    String?  // ID da assinatura no gateway
+  status          String   @default("ACTIVE") // ACTIVE, PAST_DUE, CANCELED
+  currentPeriodEnd DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model Company {
@@ -28,7 +42,12 @@ model Company {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
+  // Coordenadas da Garagem/Base (Fase 22)
+  latitude         Float?
+  longitude        Float?
+
   plan             SubscriptionPlan  @relation(fields: [subscriptionId], references: [id])
+  saasSubscription SaaSSubscription?
   
   // Relacionamentos Inquebráveis (Multi-Tenancy)
   userContracts    UserCompany[]
@@ -136,6 +155,11 @@ model Student {
   // Conformidade LGPD & ECA
   lgpdConsent Boolean @default(false)
   consentDate DateTime?
+  
+  // Localização e Trajetos (Google Maps API / TSP)
+  address     String?
+  latitude    Float?
+  longitude   Float?
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -143,6 +167,7 @@ model Student {
 
   company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   financials FinancialTransaction[]
+  invoices   Invoice[] // Faturas emitidas para os pais (Asaas)
 }
 
 model Timecard {
@@ -173,6 +198,25 @@ model FinancialTransaction {
 
   company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   student    Student  @relation(fields: [studentId], references: [id])
+}
+
+// ----------------------------------------------------
+// FATURAMENTO E COBRANÇAS PARA OS PAIS (Asaas API)
+// ----------------------------------------------------
+model Invoice {
+  id         String   @id @default(uuid())
+  companyId  String
+  studentId  String
+  gatewayId  String?  // ID do Boleto/Pix no Asaas
+  amount     Float
+  status     String   @default("PENDING") // PENDING, RECEIVED, OVERDUE
+  dueDate    DateTime
+  paymentUrl String?  // Link do Boleto ou QrCode PIX
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
 }
 
 // Fase 19: Saídas (Despesas e DRE)
