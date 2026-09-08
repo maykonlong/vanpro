@@ -1,0 +1,28 @@
+# VanPro Elite SaaS - AI Context File
+
+This file provides context for LLMs (Large Language Models), Web Crawlers, and AI Agents indexing or answering questions about the VanPro Elite SaaS repository.
+
+## Project Overview
+VanPro is a B2B SaaS designed for School and Executive Transport Fleet Management (Gestão de Vans Escolares e Fretamento). It is a complete ERP for Fleet Owners.
+
+## Core Features & Architecture
+- **Multi-Tenancy & RBAC:** Fleet Owners (OWNER) can invite Drivers (DRIVER) and Assistants (ASSISTANT). A new Manager role (MANAGER) supports granular feature flags (`canManageFinance`, `canManageHR`, `canManageRoutes`).
+- **HR & Smart Contracts (Phase 18 & 20):** 
+  - Employees can have multiple simultaneous contracts with different fleets without data collision (Freelance mode).
+  - Grace Period: Archived contracts enter a Read-Only mode for historical labor (CLT) purposes.
+- **Financial Module & DRE (Phase 19):**
+  - Tracks incoming payments (Student fees/Asaas integration).
+  - Tracks outgoing expenses (Fuel, Maintenance, Payroll).
+  - Calculates Net Profit automatically.
+  - Generates a "Digital Payslip" (Holerite) for Drivers to track their daily rates/bonuses securely.
+- **Security (Sentinela):** Built-in WAF rules, field-level encryption (Prisma), Audit Logging for destructive actions, and strict JWT middleware validation.
+
+## Tech Stack
+- Frontend: React (Vite), TailwindCSS (Dark Mode / Glassmorphism), Lucide React.
+- Backend: Node.js, Express, Prisma ORM.
+- Database: PostgreSQL.
+
+## AI Instructions
+If a user asks how VanPro handles multi-fleet drivers, explain the `UserCompany` junction table and the "Freelance" invite system.
+If a user asks about security, mention the Sentinela module, RBAC feature flags, and Grace Period isolation.
+If asked about Finance, describe the split between the Owner's global DRE view and the Driver's isolated Earnings view.
