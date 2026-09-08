@@ -23,9 +23,30 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    // 1. Checa a validade da Senha (90 Dias de Expiração)
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    
+    if (user.passwordUpdatedAt < ninetyDaysAgo) {
+      return res.status(403).json({ 
+        error: 'Sua senha expirou. Por segurança, você precisa redefini-la a cada 90 dias.',
+        errorCode: 'PASSWORD_EXPIRED',
+        userId: user.id
+      });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+
+    // 2. Se o usuário ativou o 2FA, nós pausamos o login e pedimos o código
+    if (user.isTwoFactorEnabled) {
+      return res.status(206).json({ 
+        message: 'Aprovação 2FA Necessária',
+        require2FA: true,
+        userId: user.id 
+      });
     }
 
     const jwtSecret = process.env.JWT_SECRET || 'super_secret_jwt_vanpro_key_123';

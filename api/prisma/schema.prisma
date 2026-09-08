@@ -75,21 +75,29 @@ enum Role {
 }
 
 model User {
-  id               String   @id @default(uuid())
-  name             String
-  email            String   @unique
-  passwordHash     String   // Senha (Hash)
-  role             Role     @default(DRIVER)
-  tenantId         String?  // Pode ser nulo se Super Admin
-  currentChallenge String?  // WebAuthn Challenge atual
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                String   @id @default(uuid())
+  name              String
+  email             String   @unique
+  password          String
+  passwordUpdatedAt DateTime @default(now()) // Para forçar troca a cada 90 dias
 
-  contracts        UserCompany[]
-  auditLogs        AuditLog[]
-  notes            Note[]
-  expenses         Expense[]
-  authenticators   Authenticator[] // Chaves de Passkey (Digital/FaceID)
+  // 2FA e WebAuthn
+  isTwoFactorEnabled Boolean @default(false)
+  twoFactorSecret    String?
+  currentChallenge   String? // Usado no WebAuthn (Passkeys)
+
+  role              Role     @default(DRIVER)
+  tenantId          String?  // Pode ser nulo se Super Admin
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  contracts         UserCompany[]
+  auditLogs         AuditLog[]
+  notes             Note[]
+  expenses          Expense[]
+  authenticators    Authenticator[]
+  resetTokens       PasswordResetToken[]
+  students          Student[]       @relation("ParentToStudent")
 }
 
 // ----------------------------------------------------
@@ -102,10 +110,21 @@ model Authenticator {
   counter              BigInt
   credentialDeviceType String
   credentialBackedUp   Boolean
-  transports           String?
+  transports           String
   
   userId               String
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  expiresAt DateTime
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
 }
 
 model UserCompany {
@@ -172,6 +191,7 @@ model Student {
   monthlyFee Float    @default(0)
   status     String   @default("PENDING")
   parentId   String?
+  parent     User?    @relation("ParentToStudent", fields: [parentId], references: [id])
   photoUrl   String?  /// @encrypted
   
   // Conformidade LGPD & ECA
