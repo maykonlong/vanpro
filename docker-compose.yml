@@ -21,5 +21,33 @@ services:
     ports:
       - "6379:6379"
 
+  api:
+    build: 
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: vanpro_api
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://vanpro_user:vanpro_password@postgres:5432/vanpro_db?schema=public
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=super_secret_jwt_vanpro_key_123
+      - PORT=3000
+    depends_on:
+      - postgres
+      - redis
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: vanpro_web
+    restart: always
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
 volumes:
   postgres_data:

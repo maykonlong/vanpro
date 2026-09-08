@@ -1,20 +1,36 @@
 import { Request, Response } from 'express';
 import { prisma } from '../prisma';
-// import bcrypt from 'bcryptjs';
-// import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 export const login = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
     
-    // Simplificado para MVP/Fase 4 inicial sem bcrypt para facilitar dev local
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || user.password !== password) {
+    if (!user) {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
 
-    // Gerar token simples por enquanto (Mock JWT)
-    const token = `fake-jwt-token-${user.id}`;
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+
+    const jwtSecret = process.env.JWT_SECRET || 'super_secret_jwt_vanpro_key_123';
+    const token = jwt.sign(
+      { id: user.id, role: user.role, tenantId: user.tenantId },
+      jwtSecret,
+      { expiresIn: '1d' }
+    );
+
+    // Cookie Seguro (HttpOnly)
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000 // 1 dia
+    });
 
     res.json({
       user: {
@@ -22,6 +38,7 @@ export const login = async (req: Request, res: Response) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        // Mantemos o token no JSON apenas pro MVP transicional do React (Phase 3 resolverá isso no Front)
         token
       }
     });
