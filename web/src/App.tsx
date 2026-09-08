@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import * as Sentry from "@sentry/react";
 import MainLayout from './layouts/MainLayout';
 import OwnerDashboard from './pages/OwnerDashboard';
 import DriverDashboard from './pages/DriverDashboard';
@@ -7,6 +8,17 @@ import ParentDashboard from './pages/ParentDashboard';
 import AssistantDashboard from './pages/AssistantDashboard';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from './context/AuthContext';
+
+Sentry.init({
+  dsn: process.env.VITE_SENTRY_DSN || "",
+  integrations: [
+    Sentry.browserTracingIntegration(),
+    Sentry.replayIntegration(),
+  ],
+  tracesSampleRate: 1.0,
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1.0,
+});
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();

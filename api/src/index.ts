@@ -5,15 +5,30 @@ import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import * as Sentry from '@sentry/node';
+import { nodeProfilingIntegration } from '@sentry/profiling-node';
+import { logger } from './utils/logger';
 
 import vehicleRoutes from './routes/vehicleRoutes';
 import studentRoutes from './routes/studentRoutes';
 import financialRoutes from './routes/financialRoutes';
 import timecardRoutes from './routes/timecardRoutes';
 import authRoutes from './routes/authRoutes';
+import webhookRoutes from './routes/webhookRoutes';
 import { setupWebSockets } from './websockets';
+import './jobs/billingCron'; // Iniciar CronJobs
 
 const app = express();
+
+// Sentry Config (Crash Reporting)
+Sentry.init({
+  dsn: process.env.SENTRY_DSN || '',
+  integrations: [nodeProfilingIntegration()],
+  tracesSampleRate: 1.0,
+  profilesSampleRate: 1.0,
+});
+Sentry.setupExpressErrorHandler(app);
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
@@ -52,6 +67,7 @@ app.use('/api/v1/vehicles', vehicleRoutes);
 app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/financial', financialRoutes);
 app.use('/api/v1/timecards', timecardRoutes);
+app.use('/api/v1/webhooks', webhookRoutes);
 
 // Inicializar WebSockets
 setupWebSockets(io);

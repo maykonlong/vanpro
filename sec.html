@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>VANOS - Auditoria de Produção (Blindar)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background-color: #0f172a; color: #f8fafc; line-height: 1.6; padding: 2rem; max-width: 800px; margin: auto; }
+    h1 { color: #38bdf8; border-bottom: 1px solid #1e293b; padding-bottom: 0.5rem; }
+    h2 { color: #34d399; margin-top: 2rem; }
+    .card { background: #1e293b; padding: 1.5rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid #334155; }
+    .check { color: #10b981; font-weight: bold; }
+    .warn { color: #f59e0b; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>🛡️ VANOS - Checklist de Produção (Blindar)</h1>
+  <p>Este relatório confirma a arquitetura estabelecida de acordo com o <strong>Roadmap de 10 Fases</strong>.</p>
+  
+  <div class="card">
+    <h2>🚀 Readiness para Deploy (Nuvem)</h2>
+    <ul>
+      <li><span class="check">✔</span> <strong>Docker-Compose:</strong> Orquestração de 4 containers (Web, API, Postgres, Redis) concluída.</li>
+      <li><span class="check">✔</span> <strong>CI/CD:</strong> GitHub Actions configurado para impedir deploys com erros de build.</li>
+      <li><span class="check">✔</span> <strong>Variáveis de Ambiente:</strong> Segregar JWT_SECRET, REDIS_URL e DATABASE_URL no servidor de nuvem.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>🔒 Segurança Zero-Trust</h2>
+    <ul>
+      <li><span class="check">✔</span> <strong>JWT + HttpOnly:</strong> Tokens viajam criptografados e protegidos contra XSS.</li>
+      <li><span class="check">✔</span> <strong>Helmet:</strong> Injeção de headers maliciosos mitigada.</li>
+      <li><span class="check">✔</span> <strong>Rate Limit:</strong> Proteção contra força-bruta nas rotas de login (máx. 5 req/15min).</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>⚙️ Resiliência & Performance</h2>
+    <ul>
+      <li><span class="check">✔</span> <strong>WebSockets (GPS):</strong> Rastreamento em tempo real operando com isolamento por Sala (Room).</li>
+      <li><span class="check">✔</span> <strong>BullMQ + Redis:</strong> Envios de e-mails de cobrança desacoplados para não travar a API.</li>
+      <li><span class="check">✔</span> <strong>Sentry:</strong> Monitoramento de exceções (Crash Reporting) ativado.</li>
+      <li><span class="check">✔</span> <strong>PWA:</strong> Service Workers configurados para cache local.</li>
+    </ul>
+  </div>
+
+  <div class="card" style="border-color: #f59e0b;">
+    <h2>⚠️ Próximos Passos (Ação Humana)</h2>
+    <ul>
+      <li><span class="warn">!</span> Cadastrar as chaves do Sentry no arquivo <code>.env</code> do servidor.</li>
+      <li><span class="warn">!</span> Cadastrar as URLs de Webhook no provedor de pagamento (Asaas/Stripe).</li>
+      <li><span class="warn">!</span> Executar <code>npx prisma migrate deploy</code> no servidor recém-criado.</li>
+    </ul>
+  </div>
+</body>
+</html>
