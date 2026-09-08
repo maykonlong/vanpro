@@ -34,6 +34,10 @@ Com uma arquitetura _Multi-Tenant_ rigorosa, o VanPro garante que múltiplas fro
 - **Motor de Viagens Esporádicas (`Charter`):** Paralelo às assinaturas escolares recorrentes, o sistema possui uma tela dedicada a "Eventos Únicos" (ex: Excursão para praia, Retiro de Igreja).
 - **Flexibilidade de Escala:** Fretamentos suportam datas flexíveis (`startDate` e `endDate`), podendo durar 1 dia ou 2 semanas. A escala da Van e do Motorista é resolvida em poucos cliques, injetando o lucro direto no DRE.
 
+### 🤖 Inteligência Artificial (CRM e Marketing)
+- **Assessora Virtual (Copilot):** Um motor nativo baseado em LLM que monitora o banco de dados e gera proativamente postagens de parabéns (se houver consentimento LGPD de imagem) e mensagens educadas de cobrança para faturas próximas do vencimento.
+- **Painel de Aprovação:** O dono da frota revisa os "Rascunhos da IA" em uma interface premium e aprova o envio em lote para WhatsApp ou Instagram, com opções de botões de emergência (ex: "Van Quebrou").
+
 ### 🛡️ Segurança Sentinela (Enterprise WAF)
 - **Role-Based Access Control (RBAC):** Hierarquia rígida (`OWNER`, `MANAGER`, `DRIVER`, `ASSISTANT`, `PARENT`).
 - **Feature Flags:** Delegação granular. O Dono pode promover uma secretária a `MANAGER` e ligar as chaves de acesso apenas ao Módulo Financeiro, isolando o RH e as Rotas.
