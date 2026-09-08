@@ -23,6 +23,19 @@ export const requireRole = (allowedRoles: string[]) => {
         return res.status(403).json({ error: 'Você não tem permissão para realizar esta ação.' });
       }
 
+      // Verificação de Contrato (Fase 17 - Histórico / Grace Period)
+      // Supondo que req.user traga contractStatus ('ACTIVE', 'ARCHIVED', 'SUSPENDED') no token
+      if (user.contractStatus === 'ARCHIVED' || user.contractStatus === 'SUSPENDED') {
+        const isReadOnlyRequest = req.method === 'GET';
+        
+        if (!isReadOnlyRequest) {
+          logger.warn(`Modo Somente Leitura (Grace Period): O usuário ${user.email} tentou realizar uma ação de escrita (${req.method}) mas está ${user.contractStatus}.`);
+          return res.status(403).json({ 
+            error: 'Modo Arquivo Ativo. Você só tem permissão para visualizar dados históricos. Modificações estão bloqueadas pela nova empresa.' 
+          });
+        }
+      }
+
       next();
     } catch (error) {
       logger.error(`Erro no middleware RBAC: ${(error as Error).message}`);

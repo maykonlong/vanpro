@@ -31,7 +31,7 @@ model Company {
   plan             SubscriptionPlan  @relation(fields: [subscriptionId], references: [id])
   
   // Relacionamentos Inquebráveis (Multi-Tenancy)
-  users            User[]
+  userContracts    UserCompany[]
   vehicles         Vehicle[]
   drivers          Driver[]
   students         Student[]
@@ -52,15 +52,31 @@ enum Role {
 
 model User {
   id        String   @id @default(uuid())
-  companyId String?  // Super_Admin não tem company
   name      String
   email     String   @unique
   password  String
-  role      Role     @default(PARENT)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contracts UserCompany[]
+  auditLogs AuditLog[]
+  notes     Note[]
+}
+
+model UserCompany {
+  id        String   @id @default(uuid())
+  userId    String
+  companyId String
+  role      Role     @default(DRIVER)
+  status    String   @default("INVITED") // INVITED, ACTIVE, SUSPENDED, ARCHIVED
+  token     String?  @unique // Token do link de convite
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
 }
 
 model Vehicle {
