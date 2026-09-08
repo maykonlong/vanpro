@@ -71,6 +71,7 @@ model Vehicle {
   km        Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  deletedAt DateTime? // Soft Delete (Fase 13)
 
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   timecards Timecard[]
@@ -103,6 +104,7 @@ model Student {
   photoUrl   String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  deletedAt  DateTime? // Soft Delete (Fase 13)
 
   company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   financials FinancialTransaction[]
@@ -136,4 +138,20 @@ model FinancialTransaction {
 
   company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   student    Student  @relation(fields: [studentId], references: [id])
+}
+
+// ----------------------------------------------------
+// AUDIT & LOGS (Fase 13 - O Escudo Sentinela)
+// ----------------------------------------------------
+model AuditLog {
+  id          String   @id @default(uuid())
+  companyId   String?  // Pode ser nulo se a ação for do Super Admin global
+  userId      String
+  action      String   // CREATE_STUDENT, DELETE_VEHICLE, SQL_INJECTION_ATTEMPT
+  description String
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  company     Company? @relation(fields: [companyId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
 }
