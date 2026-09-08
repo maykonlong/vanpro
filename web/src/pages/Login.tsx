@@ -7,28 +7,51 @@ const Login: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [role, setRole] = useState<'OWNER' | 'DRIVER' | 'PARENT'>('OWNER');
+  const [role, setRole] = useState<'OWNER' | 'DRIVER' | 'ASSISTANT' | 'PARENT'>('OWNER');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    // Mock Login - Bypass API just for UI test in Phase 4
-    setTimeout(() => {
-      login({
-        id: '123',
-        name: role === 'OWNER' ? 'Gestor Frotista' : role === 'DRIVER' ? 'Motorista Silva' : 'Pai do João',
-        email: 'teste@vanpro.com',
-        role: role,
-        token: 'fake-jwt-token'
+    try {
+      // Como não temos os inputs capturados no estado (apenas defaultValue), 
+      // vou simular o body com base no tipo escolhido apenas para integrar.
+      // Em uma aplicação real, capturaríamos o email/senha do form.
+      const email = role === 'OWNER' ? 'roberto@transvan.com.br' : 
+                    role === 'DRIVER' ? 'carlos.oliveira@transvan.com.br' : 
+                    role === 'ASSISTANT' ? 'auxiliar@transvan.com.br' :
+                    'maria@gmail.com';
+                    
+      const response = await fetch('http://localhost:3000/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: '123456' })
       });
 
-      if (role === 'OWNER') navigate('/owner');
-      if (role === 'DRIVER') navigate('/driver');
-      if (role === 'PARENT') navigate('/parent');
+      if (!response.ok) {
+        throw new Error('Credenciais inválidas');
+      }
 
+      const data = await response.json();
+      
+      login({
+        id: data.user.id,
+        name: data.user.name,
+        email: data.user.email,
+        role: data.user.role,
+        token: data.token
+      });
+
+      if (data.user.role === 'OWNER') navigate('/owner');
+      if (data.user.role === 'DRIVER') navigate('/driver');
+      if (data.user.role === 'ASSISTANT') navigate('/assistant');
+      if (data.user.role === 'PARENT') navigate('/parent');
+
+    } catch (error) {
+      alert('Falha no login: ' + (error as Error).message);
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -56,6 +79,13 @@ const Login: React.FC = () => {
             className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${role === 'DRIVER' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
           >
             Motorista
+          </button>
+          <button
+            type="button"
+            onClick={() => setRole('ASSISTANT')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${role === 'ASSISTANT' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+          >
+            Auxiliar
           </button>
           <button
             type="button"

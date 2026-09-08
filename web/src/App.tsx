@@ -4,6 +4,7 @@ import MainLayout from './layouts/MainLayout';
 import OwnerDashboard from './pages/OwnerDashboard';
 import DriverDashboard from './pages/DriverDashboard';
 import ParentDashboard from './pages/ParentDashboard';
+import AssistantDashboard from './pages/AssistantDashboard';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -24,6 +25,7 @@ function App() {
           <Route index element={<Navigate to="/owner" replace />} />
           <Route path="owner" element={<OwnerDashboard />} />
           <Route path="driver" element={<DriverDashboard />} />
+          <Route path="assistant" element={<AssistantDashboard />} />
           <Route path="parent" element={<ParentDashboard />} />
         </Route>
       </Routes>

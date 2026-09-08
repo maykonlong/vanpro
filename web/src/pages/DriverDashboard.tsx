@@ -11,22 +11,56 @@ const DriverDashboard: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
 
-  // Simula busca do estado atual do ponto no backend
+  // Busca do estado atual do ponto no backend
   useEffect(() => {
-    // Aqui seria um fetch('/api/v1/timecards/current')
-    setPunchState('NOT_STARTED');
-  }, []);
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch('http://localhost:3000/api/v1/timecard/status', {
+          headers: { 'Authorization': `Bearer ${user?.token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          // Mapear status do banco (PENDING, ON_ROUTE, PAUSED, COMPLETED) para UI
+          if (data.status === 'COMPLETED') setPunchState('CLOCKED_OUT');
+          else if (data.status === 'PAUSED') setPunchState('LUNCH_STARTED');
+          else if (data.status === 'ON_ROUTE') setPunchState('CLOCKED_IN');
+          else setPunchState('NOT_STARTED');
+        }
+      } catch (err) {
+        console.error('Falha ao buscar status do ponto', err);
+      }
+    };
+    if (user?.token) fetchStatus();
+  }, [user]);
 
   const handlePunch = async (type: string) => {
     setLoading(true);
-    // Aqui seria o POST para o backend: /api/v1/timecards/punch
-    setTimeout(() => {
+    try {
+      const res = await fetch('http://localhost:3000/api/v1/timecard/punch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user?.token}`
+        },
+        body: JSON.stringify({
+          action: type,
+          vehicleId: 'v1', // Idealmente viria do contexto do motorista
+          lat: -23.5505, // mock gps
+          lng: -46.6333
+        })
+      });
+
+      if (!res.ok) throw new Error('Falha ao registrar ponto');
+      
       if (type === 'CLOCK_IN') setPunchState('CLOCKED_IN');
       if (type === 'LUNCH_START') setPunchState('LUNCH_STARTED');
       if (type === 'LUNCH_END') setPunchState('LUNCH_ENDED');
       if (type === 'CLOCK_OUT') setPunchState('CLOCKED_OUT');
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
       setLoading(false);
-    }, 800);
+    }
   };
 
   const handleRequestToken = () => {
