@@ -1,8 +1,39 @@
 import React, { useState } from 'react';
-import { Bus, Wrench, Users, MessageSquare, Camera, Share2, BarChart3, QrCode, DollarSign, Compass, Lock, Map } from 'lucide-react';
+import { Bus, Wrench, Users, MessageSquare, Camera, Share2, BarChart3, QrCode, DollarSign, Compass, Lock, Map, Fingerprint } from 'lucide-react';
+import { startRegistration } from '@simplewebauthn/browser';
 
 const OwnerDashboard: React.FC = () => {
   const [subTab, setSubTab] = useState('MAIN');
+  const [registeringBiometrics, setRegisteringBiometrics] = useState(false);
+
+  const handleRegisterBiometrics = async () => {
+    try {
+      setRegisteringBiometrics(true);
+      // 1. Pede as opções de criação de Credencial (Com o token JWT atual no cookie)
+      const respOptions = await fetch('http://localhost:3000/api/v1/auth/webauthn/register/options');
+      if (!respOptions.ok) throw new Error("Erro ao buscar opções");
+      
+      const options = await respOptions.json();
+      
+      // 2. Chama a API do Sistema Operacional (Windows Hello / FaceID)
+      const authResp = await startRegistration(options);
+      
+      // 3. Envia a chave pública pro servidor salvar
+      const verificationResp = await fetch('http://localhost:3000/api/v1/auth/webauthn/register/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authResp)
+      });
+      
+      if (!verificationResp.ok) throw new Error("Erro ao salvar biometria");
+      
+      alert("✅ Biometria cadastrada com sucesso! No próximo login você não precisará de senha.");
+    } catch (error) {
+      alert("Falha ao registrar biometria: " + (error as Error).message);
+    } finally {
+      setRegisteringBiometrics(false);
+    }
+  };
   
   return (
     <div className="space-y-6">
@@ -32,7 +63,31 @@ const OwnerDashboard: React.FC = () => {
       </div>
 
       <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800/50 min-h-[400px]">
-        {subTab === 'MAIN' && <h2 className="text-xl font-bold text-white mb-4">Visão Geral</h2>}
+        {subTab === 'MAIN' && (
+          <div className="space-y-6">
+            <h2 className="text-xl font-bold text-white mb-4">Visão Geral</h2>
+            
+            {/* Card de Segurança / Passkeys */}
+            <div className="glass-card p-5 bg-slate-900 border border-indigo-500/20 rounded-2xl space-y-4 max-w-md">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Fingerprint className="w-4 h-4 text-indigo-400" /> Segurança (Passkeys)
+              </h3>
+              <p className="text-xs text-slate-400">Ative o login por biometria (Digital/Face ID) para acessar sua conta sem precisar digitar senhas.</p>
+              
+              <button 
+                onClick={handleRegisterBiometrics}
+                disabled={registeringBiometrics}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                {registeringBiometrics ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>Cadastrar Digital / Face ID</>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
         {subTab === 'FLEET' && <h2 className="text-xl font-bold text-white mb-4">Frota e Manutenção</h2>}
         {subTab === 'FINANCIAL' && <h2 className="text-xl font-bold text-white mb-4">Cobranças Pix e DRE</h2>}
         

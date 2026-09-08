@@ -75,17 +75,37 @@ enum Role {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  name      String
-  email     String   @unique
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String   @id @default(uuid())
+  name             String
+  email            String   @unique
+  passwordHash     String   // Senha (Hash)
+  role             Role     @default(DRIVER)
+  tenantId         String?  // Pode ser nulo se Super Admin
+  currentChallenge String?  // WebAuthn Challenge atual
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  contracts UserCompany[]
-  auditLogs AuditLog[]
-  notes     Note[]
-  expenses  Expense[] // Ganhos/Pagamentos atrelados a este usuário
+  contracts        UserCompany[]
+  auditLogs        AuditLog[]
+  notes            Note[]
+  expenses         Expense[]
+  authenticators   Authenticator[] // Chaves de Passkey (Digital/FaceID)
+}
+
+// ----------------------------------------------------
+// WEBAUTHN (PASSKEYS / BIOMETRIA)
+// ----------------------------------------------------
+model Authenticator {
+  id                   String  @id @default(uuid())
+  credentialID         Bytes   @unique
+  credentialPublicKey  Bytes
+  counter              BigInt
+  credentialDeviceType String
+  credentialBackedUp   Boolean
+  transports           String?
+  
+  userId               String
+  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model UserCompany {

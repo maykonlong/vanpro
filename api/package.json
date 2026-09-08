@@ -13,6 +13,7 @@
   "dependencies": {
     "@sentry/node": "^8.26.0",
     "@sentry/profiling-node": "^8.26.0",
+    "@simplewebauthn/server": "^14.0.1",
     "axios": "^1.7.5",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.12.0",
