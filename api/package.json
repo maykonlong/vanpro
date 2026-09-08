@@ -17,6 +17,7 @@
     "axios": "^1.7.5",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.12.0",
+    "compression": "^1.8.1",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -31,10 +32,13 @@
     "prisma-field-encryption": "^1.6.0",
     "socket.io": "^4.7.4",
     "swagger-jsdoc": "^6.3.0",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.6",
