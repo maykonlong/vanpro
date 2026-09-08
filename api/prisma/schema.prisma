@@ -60,6 +60,10 @@ model Company {
   charters         Charter[]
   aiCampaigns      AICampaign[]
   aiPosts          AIPost[]
+
+  // Colaboração da Frota (Fase 30)
+  incidentAlerts   IncidentAlert[]
+  teamMessages     TeamMessage[]
 }
 
 // ----------------------------------------------------
@@ -309,11 +313,40 @@ model Note {
   studentId   String?  // Pode ser atrelado a um aluno (Ex: Criança chorou muito)
   authorId    String
   content     String
+  isSecret    Boolean  @default(true) // Verdadeiro = Só equipe vê, Pais não veem.
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   author      User     @relation(fields: [authorId], references: [id])
+}
+
+// ----------------------------------------------------
+// INCIDENTES & COMUNICAÇÃO DE MASSA (Fase 30)
+// ----------------------------------------------------
+model IncidentAlert {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  severity    String   @default("MEDIUM") // LOW, MEDIUM, HIGH
+
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+}
+
+model TeamMessage {
+  id          String   @id @default(uuid())
+  content     String
+  
+  senderId    String
+  senderName  String
+  
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
 }
 
 // ----------------------------------------------------

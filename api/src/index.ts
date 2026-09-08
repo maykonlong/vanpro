@@ -20,6 +20,7 @@ import authRoutes from './routes/authRoutes';
 import webhookRoutes from './routes/webhookRoutes';
 import uploadRoutes from './routes/uploadRoutes';
 import privacyRoutes from './routes/privacyRoutes';
+import crmRoutes from './routes/crmRoutes';
 import { authMiddleware } from './middlewares/authMiddleware';
 import { setupWebSockets } from './websockets';
 import './jobs/billingCron'; // Iniciar CronJobs
@@ -100,6 +101,7 @@ app.use('/api/v1/financial', authMiddleware, financialRoutes);
 app.use('/api/v1/timecards', authMiddleware, timecardRoutes);
 app.use('/api/v1/uploads', authMiddleware, uploadRoutes);
 app.use('/api/v1/privacy', authMiddleware, privacyRoutes);
+app.use('/api/v1/crm', authMiddleware, crmRoutes);
 
 // Inicializar WebSockets
 setupWebSockets(io);
