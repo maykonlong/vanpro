@@ -8,12 +8,12 @@ interface Coordinate {
   longitude: number;
 }
 
+const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_KEY || null;
+
 export class RoutingService {
   /**
    * Resolve o Problema do Caixeiro Viajante (TSP) para uma Frota
-   * @param companyId ID da empresa dona da frota
-   * @param vehicleId Veículo escalado
-   * @returns Lista ordenada de paradas (Alunos + Escolas)
+   * utilizando a API oficial do Google Directions (Waypoints Optimization)
    */
   async calculateOptimalRoute(companyId: string, vehicleId: string) {
     // 1. Puxar a garagem (Base)
@@ -41,23 +41,55 @@ export class RoutingService {
       };
     }
 
-    // 3. Algoritmo TSP Simulado (Google Maps/Mapbox Engine entraria aqui)
-    // Em produção, isso seria uma chamada para o Google Directions API / Waypoints Optimization
-    console.log(`Calculando rota ótima para ${validStops.length} paradas...`);
-    
-    // Mock de ordenação baseada na distância em linha reta da garagem (heurística básica)
-    const sortedRoute = validStops.sort((a, b) => {
-      const distA = this.getDistanceFromLatLonInKm(company.latitude!, company.longitude!, a.latitude!, a.longitude!);
-      const distB = this.getDistanceFromLatLonInKm(company.latitude!, company.longitude!, b.latitude!, b.longitude!);
-      return distA - distB;
-    });
+    if (!GOOGLE_MAPS_KEY) {
+      console.warn('⚠️ [GOOGLE_MAPS_MOCK] GOOGLE_MAPS_KEY não encontrada. Simulando otimização via Haversine matemático...');
+      
+      const sortedRoute = validStops.sort((a, b) => {
+        const distA = this.getDistanceFromLatLonInKm(company.latitude!, company.longitude!, a.latitude!, a.longitude!);
+        const distB = this.getDistanceFromLatLonInKm(company.latitude!, company.longitude!, b.latitude!, b.longitude!);
+        return distA - distB;
+      });
 
-    return {
-      success: true,
-      provider: "Mapbox_Engine_V2",
-      totalStops: sortedRoute.length,
-      route: sortedRoute
-    };
+      return {
+        success: true,
+        provider: "Haversine_Math_Mock",
+        totalStops: sortedRoute.length,
+        route: sortedRoute
+      };
+    }
+
+    console.log(`📡 Chamando Google Directions API para roteirizar ${validStops.length} paradas com tráfego em tempo real...`);
+    
+    try {
+      // Montando a URL do Google Maps com Optimize Waypoints = true
+      const origin = `${company.latitude},${company.longitude}`;
+      const destination = origin; // Volta para a garagem
+      const waypoints = validStops.map(s => `${s.latitude},${s.longitude}`).join('|');
+      
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&waypoints=optimize:true|${waypoints}&key=${GOOGLE_MAPS_KEY}`;
+      
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.status !== "OK") {
+        throw new Error(`Google API Erro: ${data.status}`);
+      }
+
+      // O Google retorna o 'waypoint_order' com a sequência exata e mais rápida (TSP Resolvido)
+      const optimizedOrder = data.routes[0].waypoint_order;
+      const optimizedStops = optimizedOrder.map((index: number) => validStops[index]);
+
+      return {
+        success: true,
+        provider: "Google_Maps_Directions",
+        totalStops: optimizedStops.length,
+        route: optimizedStops,
+        googleData: data.routes[0] // Contém as polylines para desenhar no mapa do Front
+      };
+    } catch (error) {
+      console.error('Erro na Roteirização Google Maps:', error);
+      throw error;
+    }
   }
 
   // Função Auxiliar de Haversine para Distância

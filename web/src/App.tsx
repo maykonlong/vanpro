@@ -5,10 +5,10 @@ import MainLayout from './layouts/MainLayout';
 import OwnerDashboard from './pages/OwnerDashboard';
 import DriverDashboard from './pages/DriverDashboard';
 import ParentDashboard from './pages/ParentDashboard';
-import AssistantDashboard from './pages/AssistantDashboard';
 import CharterManagement from './pages/owners/CharterManagement';
 import AIMarketingPanel from './pages/owners/AIMarketingPanel';
 import Login from './pages/Login';
+import LandingPage from './pages/public/LandingPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 Sentry.init({
@@ -33,9 +33,11 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
       <Routes>
+        <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
         
-        <Route path="/" element={<PrivateRoute><MainLayout /></PrivateRoute>}>
+        {/* Rotas Protegidas */}
+        <Route path="/app" element={<PrivateRoute><MainLayout /></PrivateRoute>}>
           <Route index element={<Navigate to="/owner" replace />} />
           <Route path="owner" element={<OwnerDashboard />} />
           <Route path="charters" element={<CharterManagement />} />

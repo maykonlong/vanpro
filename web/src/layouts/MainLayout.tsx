@@ -24,7 +24,7 @@ const MainLayout: React.FC = () => {
 
         <nav className="flex-1 px-4 space-y-2 pb-6 md:pb-0 overflow-x-auto md:overflow-visible flex md:block">
           <NavLink
-            to="/owner"
+            to="owner"
             className={({ isActive }) =>
               `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all whitespace-nowrap ${
                 isActive ? 'bg-emerald-600/10 text-emerald-400' : 'text-slate-400 hover:bg-slate-800'
@@ -36,7 +36,7 @@ const MainLayout: React.FC = () => {
 
           {(user?.role === 'OWNER' || user?.role === 'MANAGER') && (
             <NavLink
-              to="/charters"
+              to="charters"
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all whitespace-nowrap ${
                   isActive ? 'bg-emerald-600/10 text-emerald-400' : 'text-slate-400 hover:bg-slate-800'
@@ -49,7 +49,7 @@ const MainLayout: React.FC = () => {
 
           {(user?.role === 'OWNER') && (
             <NavLink
-              to="/marketing"
+              to="marketing"
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all whitespace-nowrap ${
                   isActive ? 'bg-purple-600/10 text-purple-400 border border-purple-500/30' : 'text-slate-400 hover:bg-slate-800'
@@ -61,7 +61,7 @@ const MainLayout: React.FC = () => {
           )}
 
           <NavLink
-            to="/driver"
+            to="driver"
             className={({ isActive }) =>
               `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all whitespace-nowrap ${
                 isActive ? 'bg-emerald-600/10 text-emerald-400' : 'text-slate-400 hover:bg-slate-800'
@@ -71,7 +71,17 @@ const MainLayout: React.FC = () => {
             <SteeringWheel className="w-5 h-5" /> App Motorista
           </NavLink>
           <NavLink
-            to="/parent"
+            to="assistant"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all whitespace-nowrap ${
+                isActive ? 'bg-emerald-600/10 text-emerald-400' : 'text-slate-400 hover:bg-slate-800'
+              }`
+            }
+          >
+            <Users className="w-5 h-5" /> App Monitora
+          </NavLink>
+          <NavLink
+            to="parent"
             className={({ isActive }) =>
               `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all whitespace-nowrap ${
                 isActive ? 'bg-emerald-600/10 text-emerald-400' : 'text-slate-400 hover:bg-slate-800'
