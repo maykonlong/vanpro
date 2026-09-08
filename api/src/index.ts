@@ -3,14 +3,26 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 
 import vehicleRoutes from './routes/vehicleRoutes';
 import studentRoutes from './routes/studentRoutes';
 import financialRoutes from './routes/financialRoutes';
 import timecardRoutes from './routes/timecardRoutes';
 import authRoutes from './routes/authRoutes';
+import { setupWebSockets } from './websockets';
 
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
 const port = process.env.PORT || 3000;
 
 // Security Hardening (Blindar Phase 2)
@@ -41,6 +53,9 @@ app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/financial', financialRoutes);
 app.use('/api/v1/timecards', timecardRoutes);
 
-app.listen(port, () => {
-  console.log(`🚀 API VANOS rodando na porta ${port}`);
+// Inicializar WebSockets
+setupWebSockets(io);
+
+httpServer.listen(port, () => {
+  console.log(`🚀 API VANOS rodando na porta ${port} (HTTP & WebSockets)`);
 });

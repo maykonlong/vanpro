@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Navigation, Clock, Camera, AlertTriangle, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useGpsStore } from '../store/useGpsStore';
+import { io, Socket } from 'socket.io-client';
 
 // Enum simulado das batidas
 type PunchState = 'NOT_STARTED' | 'CLOCKED_IN' | 'LUNCH_STARTED' | 'LUNCH_ENDED' | 'CLOCKED_OUT';
@@ -10,6 +12,10 @@ const DriverDashboard: React.FC = () => {
   const [punchState, setPunchState] = useState<PunchState>('NOT_STARTED');
   const [loading, setLoading] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
+
+  const { isSimulating, startSimulation, stopSimulation, setCoordinates } = useGpsStore();
+  const socketRef = useRef<Socket | null>(null);
+  const simulationInterval = useRef<NodeJS.Timeout | null>(null);
 
   // Busca do estado atual do ponto no backend
   useEffect(() => {
@@ -31,7 +37,31 @@ const DriverDashboard: React.FC = () => {
       }
     };
     if (user?.token) fetchStatus();
+
+    // Inicializar Socket e conectar à sala (Room) do veículo
+    socketRef.current = io('http://localhost:3000');
+    socketRef.current.emit('join_vehicle_room', 'v1'); // mock vehicleId = v1
+
+    return () => {
+      socketRef.current?.disconnect();
+      if (simulationInterval.current) clearInterval(simulationInterval.current);
+    };
   }, [user]);
+
+  // Função para simular movimento de GPS
+  const triggerGpsSimulation = () => {
+    let lat = -23.5505;
+    let lng = -46.6333;
+    startSimulation();
+
+    simulationInterval.current = setInterval(() => {
+      lat += (Math.random() - 0.5) * 0.001;
+      lng += (Math.random() - 0.5) * 0.001;
+      setCoordinates(lat, lng);
+      
+      socketRef.current?.emit('driver_gps_update', { vehicleId: 'v1', lat, lng });
+    }, 3000);
+  };
 
   const handlePunch = async (type: string) => {
     setLoading(true);
@@ -44,18 +74,32 @@ const DriverDashboard: React.FC = () => {
         },
         body: JSON.stringify({
           action: type,
-          vehicleId: 'v1', // Idealmente viria do contexto do motorista
-          lat: -23.5505, // mock gps
+          vehicleId: 'v1',
+          lat: -23.5505,
           lng: -46.6333
         })
       });
 
       if (!res.ok) throw new Error('Falha ao registrar ponto');
       
-      if (type === 'CLOCK_IN') setPunchState('CLOCKED_IN');
-      if (type === 'LUNCH_START') setPunchState('LUNCH_STARTED');
-      if (type === 'LUNCH_END') setPunchState('LUNCH_ENDED');
-      if (type === 'CLOCK_OUT') setPunchState('CLOCKED_OUT');
+      if (type === 'CLOCK_IN') {
+        setPunchState('CLOCKED_IN');
+        triggerGpsSimulation();
+      }
+      if (type === 'LUNCH_START') {
+        setPunchState('LUNCH_STARTED');
+        stopSimulation();
+        if (simulationInterval.current) clearInterval(simulationInterval.current);
+      }
+      if (type === 'LUNCH_END') {
+        setPunchState('LUNCH_ENDED');
+        triggerGpsSimulation();
+      }
+      if (type === 'CLOCK_OUT') {
+        setPunchState('CLOCKED_OUT');
+        stopSimulation();
+        if (simulationInterval.current) clearInterval(simulationInterval.current);
+      }
     } catch (err) {
       alert((err as Error).message);
     } finally {
