@@ -1,0 +1,245 @@
+import crypto from 'node:crypto';
+import jwt from 'jsonwebtoken';
+import type { Response, Request } from 'express';
+import { prisma } from '../../lib/prisma';
+import { runUnscoped } from '../../lib/request-context';
+import { env } from '../../config/env';
+import { audit } from '../../lib/audit';
+import { logger } from '../../lib/logger';
+import { Errors, AppError } from '../../lib/errors';
+
+/**
+ * Sessao em dois tokens.
+ *
+ *   access  — JWT curto (15 min), carrega as claims. Nunca vai no corpo da
+ *             resposta: cookie httpOnly, e so. A versao anterior devolvia o
+ *             token no JSON "so pro MVP do React", o que anulava inteiro o
+ *             ganho do httpOnly.
+ *   refresh — valor opaco aleatorio, guardado no banco apenas como HASH, com
+ *             rotacao a cada uso e deteccao de reuso.
+ *
+ * Deteccao de reuso: se um refresh ja rotacionado aparece de novo, ou o token
+ * vazou ou foi clonado. Nao da para saber qual das duas partes e a legitima,
+ * entao a familia inteira e revogada e os dois lados refazem login. Preferimos
+ * o atrito ao invasor com sessao viva.
+ */
+
+const ACCESS_COOKIE = 'access_token';
+const REFRESH_COOKIE = 'refresh_token';
+const REFRESH_PATH = '/api/v1/auth';
+
+export interface AccessClaims {
+  sub: string;
+  role: string;
+  tenantId: string | null;
+  sid: string;
+  fam: string;
+}
+
+function hash(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function cookieBase() {
+  return {
+    httpOnly: true,
+    // `secure` fora de local: cookie de sessao em texto claro na rede e o fim
+    // de toda a cadeia de autenticacao.
+    secure: env.APP_ENV !== 'local',
+    sameSite: 'strict' as const,
+    domain: env.COOKIE_DOMAIN,
+  };
+}
+
+export function signAccessToken(claims: AccessClaims): string {
+  return jwt.sign(claims, env.JWT_ACCESS_SECRET, {
+    expiresIn: env.ACCESS_TOKEN_TTL,
+    issuer: 'vanpro-api',
+    audience: 'vanpro-web',
+    algorithm: 'HS256',
+  } as jwt.SignOptions);
+}
+
+export function verifyAccessToken(token: string): AccessClaims {
+  try {
+    // `algorithms` explicito: sem isso, um token com alg=none ou alg trocado
+    // pode ser aceito dependendo da versao da lib.
+    return jwt.verify(token, env.JWT_ACCESS_SECRET, {
+      issuer: 'vanpro-api',
+      audience: 'vanpro-web',
+      algorithms: ['HS256'],
+    }) as AccessClaims;
+  } catch {
+    throw Errors.unauthorized('Sessão expirada ou inválida.');
+  }
+}
+
+function userAgentHash(req: Request): string {
+  return hash(req.get('user-agent') ?? 'unknown');
+}
+
+export interface IssuedSession {
+  accessToken: string;
+  sessionId: string;
+}
+
+/** Cria uma familia de sessao nova (login). */
+export async function issueSession(
+  req: Request,
+  res: Response,
+  user: { id: string; role: string; tenantId: string | null },
+): Promise<IssuedSession> {
+  const familyId = crypto.randomUUID();
+  return rotate(req, res, user, familyId, null);
+}
+
+async function rotate(
+  req: Request,
+  res: Response,
+  user: { id: string; role: string; tenantId: string | null },
+  familyId: string,
+  previousSessionId: string | null,
+): Promise<IssuedSession> {
+  const refreshRaw = crypto.randomBytes(48).toString('base64url');
+  const expiresAt = new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+  const session = await runUnscoped('session-write', () =>
+    prisma.session.create({
+      data: {
+        userId: user.id,
+        familyId,
+        tokenHash: hash(refreshRaw),
+        userAgentHash: userAgentHash(req),
+        ipAddress: req.ip ?? null,
+        expiresAt,
+      },
+    }),
+  );
+
+  if (previousSessionId) {
+    await runUnscoped('session-write', () =>
+      prisma.session.update({
+        where: { id: previousSessionId },
+        data: { revokedAt: new Date(), replacedById: session.id },
+      }),
+    );
+  }
+
+  const accessToken = signAccessToken({
+    sub: user.id,
+    role: user.role,
+    tenantId: user.tenantId,
+    sid: session.id,
+    fam: familyId,
+  });
+
+  res.cookie(ACCESS_COOKIE, accessToken, {
+    ...cookieBase(),
+    path: '/',
+    maxAge: 15 * 60 * 1000,
+  });
+  res.cookie(REFRESH_COOKIE, refreshRaw, {
+    ...cookieBase(),
+    // Escopo estreito: o refresh so e enviado para as rotas de auth, entao ele
+    // nao trafega em toda requisicao da aplicacao.
+    path: REFRESH_PATH,
+    maxAge: env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+  });
+
+  return { accessToken, sessionId: session.id };
+}
+
+/** Troca o refresh por um par novo. Lanca se detectar reuso. */
+export async function refreshSession(req: Request, res: Response): Promise<IssuedSession> {
+  const raw = req.cookies?.[REFRESH_COOKIE];
+  if (!raw || typeof raw !== 'string') throw Errors.unauthorized('Sessão ausente.');
+
+  const session = await runUnscoped('session-read', () =>
+    prisma.session.findUnique({
+      where: { tokenHash: hash(raw) },
+      include: { user: true },
+    }),
+  );
+
+  if (!session) {
+    clearSessionCookies(res);
+    throw Errors.unauthorized('Sessão inválida.');
+  }
+
+  if (session.revokedAt) {
+    // Reuso: token ja rotacionado voltou. Queima a familia inteira.
+    await revokeFamily(session.familyId);
+    clearSessionCookies(res);
+    await audit({
+      action: 'AUTH_REFRESH_REUSE_DETECTED',
+      description: `Refresh token já utilizado foi reapresentado. Família ${session.familyId} revogada por precaução.`,
+      userId: session.userId,
+      ipAddress: req.ip ?? null,
+    });
+    logger.warn({ familyId: session.familyId }, 'reuso de refresh token detectado');
+    throw new AppError(401, 'SESSION_REUSE', 'Sua sessão foi encerrada por segurança. Entre novamente.');
+  }
+
+  if (session.expiresAt < new Date()) {
+    clearSessionCookies(res);
+    throw Errors.unauthorized('Sessão expirada.');
+  }
+
+  if (!session.user.isActive) {
+    await revokeFamily(session.familyId);
+    clearSessionCookies(res);
+    throw Errors.forbidden('Este acesso foi desativado.');
+  }
+
+  // Vinculo com o dispositivo. Nao e prova de posse (o User-Agent e enviado
+  // pelo cliente e pode ser copiado junto com o cookie), mas eleva o custo do
+  // replay cego e denuncia o caso mais comum de cookie exportado.
+  if (session.userAgentHash !== userAgentHash(req)) {
+    await revokeFamily(session.familyId);
+    clearSessionCookies(res);
+    await audit({
+      action: 'AUTH_REFRESH_REUSE_DETECTED',
+      description: 'Refresh apresentado de dispositivo diferente do que originou a sessão.',
+      userId: session.userId,
+      ipAddress: req.ip ?? null,
+    });
+    throw new AppError(401, 'SESSION_DEVICE_MISMATCH', 'Sessão encerrada por segurança. Entre novamente.');
+  }
+
+  return rotate(
+    req,
+    res,
+    { id: session.user.id, role: session.user.role, tenantId: session.user.tenantId },
+    session.familyId,
+    session.id,
+  );
+}
+
+export async function revokeFamily(familyId: string): Promise<void> {
+  await runUnscoped('session-write', () =>
+    prisma.session.updateMany({
+      where: { familyId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+  );
+}
+
+export async function revokeAllUserSessions(userId: string): Promise<void> {
+  await runUnscoped('session-write', () =>
+    prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } }),
+  );
+}
+
+export async function sessionIsLive(sessionId: string): Promise<boolean> {
+  const s = await runUnscoped('session-read', () =>
+    prisma.session.findUnique({ where: { id: sessionId }, select: { revokedAt: true, expiresAt: true } }),
+  );
+  return Boolean(s && !s.revokedAt && s.expiresAt > new Date());
+}
+
+export function clearSessionCookies(res: Response): void {
+  res.clearCookie(ACCESS_COOKIE, { ...cookieBase(), path: '/' });
+  res.clearCookie(REFRESH_COOKIE, { ...cookieBase(), path: REFRESH_PATH });
+}
+
+export const cookieNames = { ACCESS_COOKIE, REFRESH_COOKIE, REFRESH_PATH };

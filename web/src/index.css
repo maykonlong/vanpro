@@ -1,14 +1,93 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/**
+ * Paleta escura de contraste alto. Cada par texto/fundo usado no app foi
+ * escolhido acima de 4.5:1 (WCAG AA) — inclusive os estados de erro e sucesso,
+ * que sao justamente os que costumam ficar em vermelho claro ilegivel.
+ */
+@theme {
+  --color-ink-950: #0b1220;
+  --color-ink-900: #0f172a;
+  --color-ink-800: #1e293b;
+  --color-ink-700: #334155;
+  --color-ink-600: #475569;
+  --color-ink-400: #94a3b8;
+  --color-ink-200: #e2e8f0;
+  --color-ink-50: #f8fafc;
+
+  --color-brand-400: #fbbf24;
+  --color-brand-500: #f59e0b;
+  --color-brand-600: #d97706;
+
+  --color-good-400: #4ade80;
+  --color-bad-400: #fca5a5;
+  --color-bad-500: #ef4444;
+  --color-warn-400: #fcd34d;
+}
 
 :root {
-  --font-family-base: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color-scheme: dark;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
 }
 
 body {
   margin: 0;
-  font-family: var(--font-family-base);
-  background-color: #0f172a; /* Slate-900 para dark mode pattern */
-  color: #f8fafc; /* Slate-50 */
+  background-color: var(--color-ink-950);
+  color: var(--color-ink-50);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Foco sempre visivel: navegacao por teclado sem anel e navegacao as cegas. */
+:focus-visible {
+  outline: 3px solid var(--color-brand-400);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Alvo de toque minimo de 44x44 em qualquer controle interativo. */
+button,
+a[role='button'],
+input[type='checkbox'],
+input[type='radio'],
+select {
+  min-height: 44px;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  min-width: 24px;
+  min-height: 24px;
+  accent-color: var(--color-brand-500);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Link para pular a navegacao, visivel apenas quando recebe foco. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  background: var(--color-brand-500);
+  color: var(--color-ink-950);
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  left: 0;
 }

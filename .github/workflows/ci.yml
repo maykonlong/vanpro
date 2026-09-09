@@ -1,43 +1,200 @@
-name: CI Pipeline
+name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ['main']
   pull_request:
-    branches: [ "main" ]
+    branches: ['main']
+
+# Cancela execucao antiga do mesmo PR: fila de CI competindo consigo mesma
+# atrasa o feedback que justifica ter CI.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
 
 jobs:
-  build-and-test:
+  api:
+    name: API — tipos, testes e migrations
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vanpro
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: vanpro_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U vanpro"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      NODE_ENV: test
+      APP_ENV: local
+      DATABASE_URL: postgresql://vanpro:ci@localhost:5432/vanpro_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      # Segredos de CI sao efemeros e publicos de proposito: nada real trafega
+      # aqui, e usar secret de verdade em PR de fork e como vazar de graca.
+      JWT_ACCESS_SECRET: ci_access_secret_com_mais_de_32_caracteres_ok_1
+      JWT_REFRESH_SECRET: ci_refresh_secret_com_mais_de_32_caracteres_ok_2
+      PRISMA_FIELD_ENCRYPTION_KEY: k1.aesgcm256.Yb3EJ0nJvVpXKX0zLmQ8kx7dRk9wCq2sTt5uHn1aZ4E=
+      FRONTEND_URL: http://localhost:5173
+      WEBAUTHN_RP_ID: localhost
+      WEBAUTHN_ORIGIN: http://localhost:5173
+      ENABLE_CRON: 'false'
+
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-    - name: Use Node.js 20
-      uses: actions/setup-node@v3
-      with:
-        node-version: '20'
-        cache: 'npm'
-        cache-dependency-path: '**/package-lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: api/package-lock.json
 
-    # Backend
-    - name: Install API Dependencies
-      run: npm ci
-      working-directory: ./api
+      # `npm ci`, nunca `npm install`: respeita o lockfile e nao promove versao
+      # sozinho. Mais da metade dos incidentes em Node hoje vem de dependencia.
+      - name: Instalar dependencias
+        working-directory: ./api
+        run: npm ci
 
-    - name: Generate Prisma Client
-      run: npx prisma generate
-      working-directory: ./api
-      
-    - name: Build API
-      run: npm run build
-      working-directory: ./api
+      - name: Gerar Prisma Client
+        working-directory: ./api
+        run: npx prisma generate
 
-    # Frontend
-    - name: Install Web Dependencies
-      run: npm ci
-      working-directory: ./web
+      - name: Verificacao de tipos
+        working-directory: ./api
+        run: npm run typecheck
 
-    - name: Build Web
-      run: npm run build
-      working-directory: ./web
+      - name: Aplicar migrations
+        working-directory: ./api
+        run: npx prisma migrate deploy
+
+      # Prova que as migrations versionadas descrevem o schema. Sem isso, um
+      # `db push` esquecido faz producao divergir do que o CI testou.
+      # O shadow precisa ser um banco VAZIO e separado: apontar para o banco que
+      # acabou de ser migrado compara o schema consigo mesmo e nunca acusa nada.
+      - name: Migrations em dia com o schema
+        working-directory: ./api
+        run: |
+          export PGPASSWORD=ci
+          psql -h localhost -U vanpro -d postgres -c 'DROP DATABASE IF EXISTS vanpro_shadow'
+          psql -h localhost -U vanpro -d postgres -c 'CREATE DATABASE vanpro_shadow'
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "postgresql://vanpro:ci@localhost:5432/vanpro_shadow?schema=public" \
+            --exit-code
+
+      - name: Build
+        working-directory: ./api
+        run: npm run build
+
+      - name: Testes com cobertura
+        working-directory: ./api
+        run: npm run test:coverage
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cobertura-api
+          path: api/coverage/
+          retention-days: 7
+
+  web:
+    name: Web — tipos e build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Instalar dependencias
+        working-directory: ./web
+        run: npm ci
+      - name: Verificacao de tipos
+        working-directory: ./web
+        run: npx tsc --noEmit
+      - name: Lint
+        working-directory: ./web
+        run: npm run lint
+      - name: Build
+        working-directory: ./web
+        run: npm run build
+
+  seguranca:
+    name: Seguranca — dependencias e segredos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Producao BLOQUEIA em high/critical. Auditoria que so informa e ignorada.
+      #
+      # A separacao producao/desenvolvimento e explicita de proposito: o que vai
+      # na imagem tem gate duro; o que fica na maquina do desenvolvedor e
+      # relatado e vive em `.accept-risk.md`, com prazo de revisao. Baixar o
+      # limiar geral para o pipeline ficar verde seria o mesmo que desligar o
+      # alarme por causa de um falso positivo.
+      - name: npm audit — dependencias de PRODUCAO (bloqueia)
+        run: |
+          npm audit --omit=dev --audit-level=high --prefix api
+          npm audit --omit=dev --audit-level=high --prefix web
+
+      - name: npm audit — dependencias de DESENVOLVIMENTO (relata)
+        continue-on-error: true
+        run: |
+          echo "::group::API"; npm audit --audit-level=high --prefix api || true; echo "::endgroup::"
+          echo "::group::Web"; npm audit --audit-level=high --prefix web || true; echo "::endgroup::"
+          echo "Riscos conhecidos e aceitos estao em .accept-risk.md"
+
+      # Risco aceito precisa de prazo. Sem isso a lista vira gaveta.
+      - name: Riscos aceitos ainda dentro do prazo
+        run: bash infra/scripts/check-accepted-risks.sh
+
+      - name: Varredura de segredos
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Guarda estatico: o que ja custou incidente nao volta sem alguem ver.
+      - name: Guardas de regressao
+        run: bash infra/scripts/guards.sh
+
+  docker:
+    name: Imagens sobem
+    runs-on: ubuntu-latest
+    needs: [api, web]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build da imagem da API
+        run: docker build -t vanpro-api:ci ./api
+      - name: Build da imagem do Web
+        run: docker build -t vanpro-web:ci ./web
+      - name: Nenhuma imagem roda como root
+        run: |
+          for img in vanpro-api:ci vanpro-web:ci; do
+            u=$(docker run --rm --entrypoint sh "$img" -c 'id -u')
+            if [ "$u" = "0" ]; then echo "FALHA: $img roda como root"; exit 1; fi
+            echo "ok: $img roda como uid $u"
+          done

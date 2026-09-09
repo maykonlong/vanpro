@@ -1,3 +1,8 @@
+// VanPro - schema multi-tenant.
+// Regra: todo modelo de negocio carrega companyId e e filtrado pelo tenant-guard
+// em src/lib/prisma.ts. Unicidade de negocio e SEMPRE composta com companyId,
+// senao a colisao entre empresas vira vazamento de existencia.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,82 +12,85 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ----------------------------------------------------
-// B2B SAAS CORE - TENANTS E PLANOS
-// ----------------------------------------------------
+// ====================================================
+// SAAS CORE
+// ====================================================
+
 model SubscriptionPlan {
-  id          String    @id @default(uuid())
-  name        String    // Ex: FREE, PRO, ENTERPRISE
-  maxVehicles Int
-  maxDrivers  Int
-  price       Float
-  stripePriceId String? // ID do plano no Gateway (Stripe/MercadoPago)
-  
-  companies   Company[]
+  id            String  @id @default(uuid())
+  name          String  @unique
+  maxVehicles   Int
+  maxDrivers    Int
+  maxStudents   Int     @default(50)
+  priceCents    Int    // centavos. Dinheiro em Float perde centavo em soma - BACEN 4658.
+  gatewayPlanId String?
+
+  companies Company[]
 }
 
 model SaaSSubscription {
-  id              String   @id @default(uuid())
-  companyId       String   @unique
-  gateway         String   @default("STRIPE") // STRIPE, ASAAS, MERCADOPAGO
-  gatewaySubId    String?  // ID da assinatura no gateway
-  status          String   @default("ACTIVE") // ACTIVE, PAST_DUE, CANCELED
+  id               String    @id @default(uuid())
+  companyId        String    @unique
+  gateway          String    @default("ASAAS")
+  gatewaySubId     String?
+  status           String    @default("ACTIVE") // ACTIVE, PAST_DUE, CANCELED
   currentPeriodEnd DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model Company {
-  id               String            @id @default(uuid())
-  name             String
-  document         String            @unique // CNPJ ou CPF
-  subscriptionId   String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id             String   @id @default(uuid())
+  name           String
+  document       String   @unique // CNPJ ou CPF, somente digitos
+  subscriptionId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  // Coordenadas da Garagem/Base (Fase 22)
-  latitude         Float?
-  longitude        Float?
+  latitude  Float?
+  longitude Float?
 
-  // Billing & Lifecyle (Fase 31 - The Money Machine)
-  tenantStatus     String            @default("TRIAL") // TRIAL, ACTIVE, PAST_DUE, SUSPENDED
-  trialEndsAt      DateTime?         // Se nulo = cliente já pagante
-  suspendedAt      DateTime?         // Quando foi suspenso
+  tenantStatus String    @default("TRIAL") // TRIAL, ACTIVE, PAST_DUE, SUSPENDED, CANCELED
+  trialEndsAt  DateTime?
+  suspendedAt  DateTime?
 
   plan             SubscriptionPlan  @relation(fields: [subscriptionId], references: [id])
   saasSubscription SaaSSubscription?
-  auditLogs        AuditLog[]
-  notes            Note[]
-  
-  // Relacionamentos Inquebráveis (Multi-Tenancy)
-  userContracts    UserCompany[]
-  vehicles         Vehicle[]
-  drivers          Driver[]
-  students         Student[]
-  timecards        Timecard[]
-  financials       FinancialTransaction[]
-  expenses         Expense[]
-  charters         Charter[]
-  aiCampaigns      AICampaign[]
-  aiPosts          AIPost[]
 
-  // Colaboração da Frota (Fase 30)
-  incidentAlerts   IncidentAlert[]
-  teamMessages     TeamMessage[]
+  userContracts UserCompany[]
+  vehicles      Vehicle[]
+  drivers       Driver[]
+  students      Student[]
+  timecards     Timecard[]
+  punches       Punch[]
+  financials    FinancialTransaction[]
+  invoices      Invoice[]
+  expenses      Expense[]
+  charters      Charter[]
+  aiCampaigns   AICampaign[]
+  aiPosts       AIPost[]
+  auditLogs     AuditLog[]
+  notes         Note[]
+  incidents     IncidentAlert[]
+  teamMessages  TeamMessage[]
+
+  @@index([tenantStatus])
+  @@index([trialEndsAt])
 }
 
-// ----------------------------------------------------
-// BUSINESS LOGIC
-// ----------------------------------------------------
+// ====================================================
+// IDENTIDADE E SESSAO
+// ====================================================
+
 enum Role {
-  SUPER_ADMIN // Mestre do SaaS
-  OWNER       // Dono da Empresa (Frota)
-  MANAGER     // Gestor Administrativo
-  DRIVER      // Motorista
-  ASSISTANT   // Auxiliar (Monitor)
-  PARENT      // Pai do aluno
+  SUPER_ADMIN
+  OWNER
+  MANAGER
+  DRIVER
+  ASSISTANT
+  PARENT
 }
 
 model User {
@@ -90,30 +98,58 @@ model User {
   name              String
   email             String   @unique
   password          String
-  passwordUpdatedAt DateTime @default(now()) // Para forçar troca a cada 90 dias
+  passwordUpdatedAt DateTime @default(now())
 
-  // 2FA e WebAuthn
-  isTwoFactorEnabled Boolean @default(false)
-  twoFactorSecret    String?
-  currentChallenge   String? // Usado no WebAuthn (Passkeys)
+  isTwoFactorEnabled     Boolean @default(false)
+  twoFactorSecret        String? /// @encrypted
+  pendingTwoFactorSecret String? /// @encrypted
+  twoFactorRecoveryCodes String? /// @encrypted
+  currentChallenge       String?
 
-  role              Role     @default(DRIVER)
-  tenantId          String?  // Pode ser nulo se Super Admin
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  // Bloqueio progressivo por tentativa de login
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
 
-  contracts         UserCompany[]
-  auditLogs         AuditLog[]
-  notes             Note[]
-  expenses          Expense[]
-  authenticators    Authenticator[]
-  resetTokens       PasswordResetToken[]
-  students          Student[]       @relation("ParentToStudent")
+  role      Role     @default(DRIVER)
+  tenantId  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contracts      UserCompany[]
+  auditLogs      AuditLog[]
+  notes          Note[]
+  expenses       Expense[]
+  authenticators Authenticator[]
+  resetTokens    PasswordResetToken[]
+  sessions       Session[]
+  students       Student[]            @relation("ParentToStudent")
+  driverProfile  Driver?
+
+  @@index([tenantId])
 }
 
-// ----------------------------------------------------
-// WEBAUTHN (PASSKEYS / BIOMETRIA)
-// ----------------------------------------------------
+/// Sessao de refresh. Token guardado como hash: vazamento de banco nao vira
+/// sessao valida. Rotacao com deteccao de reuso (familia revogada inteira).
+model Session {
+  id            String    @id @default(uuid())
+  userId        String
+  familyId      String
+  tokenHash     String    @unique
+  userAgentHash String
+  ipAddress     String?
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  replacedById  String?
+  createdAt     DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
 model Authenticator {
   id                   String  @id @default(uuid())
   credentialID         Bytes   @unique
@@ -121,60 +157,77 @@ model Authenticator {
   counter              BigInt
   credentialDeviceType String
   credentialBackedUp   Boolean
-  transports           String
-  
-  userId               String
-  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transports           String  @default("")
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model PasswordResetToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
   expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model UserCompany {
-  id           String   @id @default(uuid())
+  id           String @id @default(uuid())
   userId       String
   companyId    String
-  role         Role     @default(DRIVER)
-  status       String   @default("INVITED") // INVITED, ACTIVE, SUSPENDED, ARCHIVED
-  contractType String   @default("FULL_TIME") // FULL_TIME ou FREELANCE
-  
-  // Feature Flags (Permissões Granulares)
+  role         Role   @default(DRIVER)
+  status       String @default("INVITED") // INVITED, ACTIVE, SUSPENDED, ARCHIVED
+  contractType String @default("FULL_TIME") // FULL_TIME, FREELANCE
+
   canManageFinance Boolean @default(false)
   canManageHR      Boolean @default(false)
   canManageRoutes  Boolean @default(false)
-  
-  token        String?  @unique // Token do link de convite
-  joinedAt     DateTime @default(now())
-  leftAt       DateTime?
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  inviteTokenHash String?   @unique
+  inviteExpiresAt DateTime?
+  joinedAt        DateTime  @default(now())
+  leftAt          DateTime?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([userId, companyId])
+  @@index([companyId, status])
 }
 
-model Vehicle {
-  id        String   @id @default(uuid())
-  companyId String
-  plate     String   @unique
-  capacity  Int
-  km        Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime? // Soft Delete (Fase 13)
+// ====================================================
+// FROTA
+// ====================================================
 
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+model Vehicle {
+  id        String    @id @default(uuid())
+  companyId String
+  plate     String
+  model     String    @default("")
+  capacity  Int
+  km        Int       @default(0)
+  status    String    @default("IDLE") // IDLE, ON_ROUTE, MAINTENANCE
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   timecards Timecard[]
-  expenses  Expense[] // Despesas atreladas a este veículo
-  charters  Charter[] // Viagens esporádicas agendadas para esta van
+  expenses  Expense[]
+  charters  Charter[]
+
+  @@unique([companyId, plate])
+  @@index([companyId, deletedAt])
 }
 
 model Driver {
@@ -182,49 +235,58 @@ model Driver {
   companyId String
   name      String
   userId    String?  @unique
-  role      Role     @default(DRIVER)
-  shiftType String   
-  dailyRate Float    @default(0)
+  shiftType String   @default("MORNING") // MORNING, AFTERNOON, FULL
+  dailyRateCents Int   @default(0) // centavos
+  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user      User?      @relation(fields: [userId], references: [id])
   timecards Timecard[]
-  charters  Charter[] // Fretamentos atribuídos a este motorista
+  charters  Charter[]
+
+  @@index([companyId, status])
 }
 
 model Student {
-  id         String   @id @default(uuid())
+  id         String @id @default(uuid())
   companyId  String
-  name       String   /// @encrypted
+  name       String /// @encrypted
   school     String
-  shift      String
-  monthlyFee Float    @default(0)
-  status     String   @default("PENDING")
-  parentId   String?
-  parent     User?    @relation("ParentToStudent", fields: [parentId], references: [id])
-  photoUrl   String?  /// @encrypted
-  
-  // Conformidade LGPD & ECA
-  lgpdConsent   Boolean @default(false)
-  imageConsent  Boolean @default(false) // Autorização de imagem para redes sociais
-  consentDate   DateTime?
-  dateOfBirth   DateTime? // Para mensagens de Aniversário
-  
-  // Localização e Trajetos (Google Maps API / TSP)
-  address     String?
-  latitude    Float?
-  longitude   Float?
+  grade      String @default("")
+  shift      String // MORNING, AFTERNOON, FULL
+  monthlyFeeCents Int  @default(0) // centavos
+  status     String @default("PENDING") // PENDING, BOARDED, DELIVERED, ABSENT
+
+  parentId String?
+  parent   User?   @relation("ParentToStudent", fields: [parentId], references: [id])
+
+  photoUrl String? /// @encrypted
+
+  lgpdConsent  Boolean   @default(false)
+  imageConsent Boolean   @default(false)
+  consentDate  DateTime?
+  dateOfBirth  DateTime?
+
+  address   String? /// @encrypted
+  latitude  Float?
+  longitude Float?
 
   deleteRequestStatus String? @default("NONE") // NONE, PENDING_APPROVAL, DELETED
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  deletedAt  DateTime? // Soft Delete (Fase 13)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
-  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   financials FinancialTransaction[]
-  invoices   Invoice[] // Faturas emitidas para os pais (Asaas)
+  invoices   Invoice[]
+  notes      Note[]
+
+  @@index([companyId, deletedAt])
+  @@index([companyId, shift])
+  @@index([parentId])
 }
 
 model Timecard {
@@ -232,187 +294,248 @@ model Timecard {
   companyId String
   driverId  String
   vehicleId String
-  status    String   @default("IN_PROGRESS")
+  status    String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
   date      DateTime @default(now())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  driver    Driver   @relation(fields: [driverId], references: [id])
-  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id])
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  driver  Driver  @relation(fields: [driverId], references: [id])
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+  punches Punch[]
+
+  @@index([companyId, status])
+  @@index([driverId, status])
 }
 
-model FinancialTransaction {
+model Punch {
   id         String   @id @default(uuid())
   companyId  String
-  studentId  String
-  amount     Float
-  paid       Boolean  @default(false)
-  dueDate    DateTime
-  externalId String?  @unique // ID do Asaas/Stripe
+  timecardId String
+  type       String // CLOCK_IN, BREAK_START, BREAK_END, CLOCK_OUT
+  km         Int?
+  latitude   Float?
+  longitude  Float?
   createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
 
-  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  student    Student  @relation(fields: [studentId], references: [id])
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  timecard Timecard @relation(fields: [timecardId], references: [id], onDelete: Cascade)
+
+  @@index([timecardId])
+  @@index([companyId, createdAt])
 }
 
-// ----------------------------------------------------
-// FATURAMENTO E COBRANÇAS PARA OS PAIS (Asaas API)
-// ----------------------------------------------------
+// ====================================================
+// FINANCEIRO
+// ====================================================
+
+model FinancialTransaction {
+  id         String    @id @default(uuid())
+  companyId  String
+  studentId  String
+  amountCents Int
+  paid       Boolean   @default(false)
+  paidAt     DateTime?
+  dueDate    DateTime
+  externalId String?   @unique
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@index([companyId, paid, dueDate])
+  @@index([studentId])
+}
+
 model Invoice {
   id         String   @id @default(uuid())
   companyId  String
   studentId  String
-  gatewayId  String?  // ID do Boleto/Pix no Asaas
-  amount     Float
-  status     String   @default("PENDING") // PENDING, RECEIVED, OVERDUE
+  gatewayId  String?  @unique
+  amountCents Int
+  status     String   @default("PENDING") // PENDING, RECEIVED, OVERDUE, CANCELED
   dueDate    DateTime
-  paymentUrl String?  // Link do Boleto ou QrCode PIX
+  paymentUrl String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status, dueDate])
 }
 
-// Fase 19: Saídas (Despesas e DRE)
 model Expense {
   id          String   @id @default(uuid())
   companyId   String
   description String
-  amount      Float
-  category    String   // FUEL, MAINTENANCE, PAYROLL, TAXES, OTHER
+  amountCents Int
+  category    String // FUEL, MAINTENANCE, PAYROLL, TAXES, OTHER
   date        DateTime @default(now())
-  vehicleId   String?  // Gasto atrelado a veículo (Manutenção/Combustível)
-  employeeId  String?  // Gasto atrelado a funcionário (Pagamento/Diária)
-  receiptUrl  String?  // Link do cupom fiscal/comprovante
+  vehicleId   String?
+  employeeId  String?
+  receiptUrl  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  vehicle     Vehicle? @relation(fields: [vehicleId], references: [id])
-  employee    User?    @relation(fields: [employeeId], references: [id])
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vehicle  Vehicle? @relation(fields: [vehicleId], references: [id])
+  employee User?    @relation(fields: [employeeId], references: [id])
+
+  @@index([companyId, date])
+  @@index([companyId, category])
 }
 
-// ----------------------------------------------------
-// AUDIT & LOGS (Fase 13 - O Escudo Sentinela)
-// ----------------------------------------------------
+// ====================================================
+// AUDITORIA (append-only, encadeada por hash)
+// ====================================================
+
 model AuditLog {
   id          String   @id @default(uuid())
-  companyId   String?  // Pode ser nulo se a ação for do Super Admin global
-  userId      String
-  action      String   // CREATE_STUDENT, DELETE_VEHICLE, SQL_INJECTION_ATTEMPT
+  companyId   String?
+  userId      String?
+  action      String
   description String
   ipAddress   String?
+  userAgent   String?
+  /// Hash do registro anterior da mesma empresa. Reescrever historico quebra a cadeia.
+  prevHash    String?
+  hash        String
   createdAt   DateTime @default(now())
 
-  company     Company? @relation(fields: [companyId], references: [id])
-  user        User     @relation(fields: [userId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([action])
 }
 
-// ----------------------------------------------------
-// CRM & TEAM COLLABORATION (Fase 14)
-// ----------------------------------------------------
+// ====================================================
+// CRM / COMUNICACAO
+// ====================================================
+
 model Note {
-  id          String   @id @default(uuid())
-  companyId   String
-  studentId   String?  // Pode ser atrelado a um aluno (Ex: Criança chorou muito)
-  authorId    String
-  content     String
-  isSecret    Boolean  @default(true) // Verdadeiro = Só equipe vê, Pais não veem.
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid())
+  companyId String
+  studentId String
+  authorId  String
+  content   String /// @encrypted
+  isSecret  Boolean  @default(true)
+  createdAt DateTime @default(now())
 
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  author      User     @relation(fields: [authorId], references: [id])
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  author  User    @relation(fields: [authorId], references: [id])
+
+  @@index([companyId, studentId])
 }
 
-// ----------------------------------------------------
-// INCIDENTES & COMUNICAÇÃO DE MASSA (Fase 30)
-// ----------------------------------------------------
 model IncidentAlert {
   id          String   @id @default(uuid())
+  companyId   String
   title       String
   description String
-  severity    String   @default("MEDIUM") // LOW, MEDIUM, HIGH
-
-  companyId   String
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
+  severity    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  createdById String?
   createdAt   DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
 }
 
 model TeamMessage {
-  id          String   @id @default(uuid())
-  content     String
-  
-  senderId    String
-  senderName  String
-  
-  companyId   String
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  companyId  String
+  senderId   String
+  senderName String
+  content    String /// @encrypted
+  createdAt  DateTime @default(now())
 
-  createdAt   DateTime @default(now())
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
 }
 
-// ----------------------------------------------------
-// EVENTOS & FRETAMENTOS (Fase 21 - Viagens Esporádicas)
-// ----------------------------------------------------
+// ====================================================
+// FRETAMENTO
+// ====================================================
+
 model Charter {
-  id            String   @id @default(uuid())
-  companyId     String
-  title         String   // Ex: "Excursão Praia" ou "Evento Corporativo"
-  contractor    String   // Nome de quem contratou
-  price         Float    // Valor cobrado pelo frete
-  
-  // Controle de Tempo
-  startDate     DateTime // Data e hora de início
-  endDate       DateTime // Data e hora de término (pode ser o mesmo dia ou dias depois)
-  
-  status        String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELED
+  id         String   @id @default(uuid())
+  companyId  String
+  title      String
+  contractor String
+  priceCents Int
+  startDate  DateTime
+  endDate    DateTime
+  status     String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELED
+  vehicleId  String?
+  driverId   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  // Atribuição (Quem vai e com qual Van)
-  vehicleId     String?
-  driverId      String?
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
+  driver  Driver?  @relation(fields: [driverId], references: [id])
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  vehicle       Vehicle? @relation(fields: [vehicleId], references: [id])
-  driver        Driver?  @relation(fields: [driverId], references: [id])
+  @@index([companyId, status])
+  @@index([companyId, startDate])
 }
 
-// ----------------------------------------------------
-// FASE 23: CRM E MARKETING COM INTELIGÊNCIA ARTIFICIAL
-// ----------------------------------------------------
-model AICampaign {
-  id          String   @id @default(uuid())
-  companyId   String
-  name        String   // Ex: "Campanha de Férias", "Feliz Aniversário Automático"
-  template    String   // O prompt/contexto base para a IA
-  target      String   // ALL_STUDENTS, ALL_PARENTS, SPECIFIC
-  channel     String   // WHATSAPP, INSTAGRAM, EMAIL
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
+// ====================================================
+// CRM COM IA
+// ====================================================
 
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  posts       AIPost[]
+model AICampaign {
+  id        String   @id @default(uuid())
+  companyId String
+  name      String
+  template  String
+  target    String // ALL_STUDENTS, ALL_PARENTS, SPECIFIC
+  channel   String // WHATSAPP, INSTAGRAM, EMAIL
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  posts   AIPost[]
+
+  @@index([companyId, isActive])
 }
 
 model AIPost {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   companyId   String
   campaignId  String?
-  content     String   // O texto gerado pela LLM
-  imageUrl    String?  // Imagem anexada (ex: Card de aniversário)
-  targetId    String?  // Id do Pai ou Aluno que vai receber (se for privado)
-  channel     String   // WHATSAPP_STATUS, WHATSAPP_PRIVATE, INSTAGRAM
-  status      String   @default("DRAFT") // DRAFT (Esperando aprovação), APPROVED, PUBLISHED
+  content     String
+  imageUrl    String?
+  targetId    String?
+  channel     String
+  status      String    @default("DRAFT") // DRAFT, APPROVED, PUBLISHED, REJECTED
   scheduledTo DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  campaign    AICampaign? @relation(fields: [campaignId], references: [id])
+  company  Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  campaign AICampaign? @relation(fields: [campaignId], references: [id])
+
+  @@index([companyId, status])
+}
+
+// ====================================================
+// INTEGRACOES
+// ====================================================
+
+/// Idempotencia de webhook: gateway reenvia o mesmo evento, e reprocessar
+/// pagamento duas vezes e erro contabil.
+model WebhookEvent {
+  id          String   @id @default(uuid())
+  provider    String // ASAAS, STRIPE
+  externalId  String
+  eventType   String
+  payloadHash String
+  processedAt DateTime @default(now())
+
+  @@unique([provider, externalId])
+  @@index([processedAt])
 }

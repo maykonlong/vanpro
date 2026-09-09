@@ -1,26 +1,59 @@
-FROM node:20-alpine AS builder
+# syntax=docker/dockerfile:1
 
+# ---------- build ----------
+FROM node:22-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
-COPY prisma ./prisma/
 
+# npm fixado, e nao "o que vier na imagem base".
+#
+# O npm 10.9.8 que acompanha o node:22-alpine quebra com `overrides` no
+# package.json (`Cannot read properties of null (reading 'edgesOut')`), e o
+# lockfile gerado por uma versao nao fecha com `npm ci` de outra. Build
+# reproduzivel nao pode depender de qual npm a imagem base trouxe hoje.
+RUN npm install -g npm@11.6.2
+
+# `npm ci` (nunca `npm install`) em CI/Docker: respeita o lockfile e nao
+# resolve versao nova sozinho — supply chain e o vetor numero um hoje.
+COPY package.json package-lock.json ./
 RUN npm ci
 
-COPY . .
-
+COPY prisma ./prisma
 RUN npx prisma generate
+
+COPY tsconfig.json ./
+COPY src ./src
 RUN npm run build
 
-FROM node:20-alpine AS runner
+# Reinstala so as de producao para nao carregar devDependencies na imagem final.
+RUN npm ci --omit=dev && npx prisma generate
 
+# ---------- runtime ----------
+FROM node:22-alpine AS runner
 WORKDIR /app
 
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
+ENV NODE_ENV=production
 
+# dumb-init faz PID 1 repassar SIGTERM: sem ele o Node nao recebe o sinal e o
+# encerramento gracioso nunca roda — deploy corta requisicao em voo.
+RUN apk add --no-cache dumb-init
+
+# Usuario sem privilegio. Container rodando como root transforma qualquer RCE
+# em controle do container.
+RUN addgroup -g 10001 -S vanpro && adduser -u 10001 -S vanpro -G vanpro
+
+COPY --from=builder --chown=vanpro:vanpro /app/node_modules ./node_modules
+COPY --from=builder --chown=vanpro:vanpro /app/dist ./dist
+COPY --from=builder --chown=vanpro:vanpro /app/prisma ./prisma
+COPY --chown=vanpro:vanpro package.json ./
+
+# O filesystem sobe read-only no compose; uploads vao para volume montado aqui.
+RUN mkdir -p /app/storage/uploads && chown -R vanpro:vanpro /app/storage
+
+USER vanpro
 EXPOSE 3000
 
-# Start script
-CMD ["npm", "run", "start"]
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+  CMD node -e "fetch('http://127.0.0.1:3000/api/v1/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "dist/index.js"]

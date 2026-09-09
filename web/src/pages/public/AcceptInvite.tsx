@@ -1,115 +1,108 @@
-import React, { useState } from 'react';
-import { UserPlus, ShieldAlert, CheckCircle2, Building2 } from 'lucide-react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
+import type { FormEvent } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
-export const AcceptInvite: React.FC = () => {
-  const { token } = useParams();
-  const [searchParams] = useSearchParams();
-  const contractType = searchParams.get('type') || 'FULL_TIME';
-  
+import { AuthShell } from './AuthShell';
+import { Button, InlineError, TextInput } from '../../components/ui';
+import { api, setCsrfToken } from '../../lib/api';
+import { useAction } from '../../hooks/useResource';
+import { useAuth } from '../../context/AuthContext';
+import { passwordStrength } from '../../lib/validators';
+
+export function AcceptInvite() {
+  const [params] = useSearchParams();
   const navigate = useNavigate();
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [status, setStatus] = useState<'IDLE' | 'LOADING' | 'SUCCESS'>('IDLE');
+  const { reload } = useAuth();
+  const action = useAction();
+  const token = params.get('token') ?? '';
 
-  // Na vida real, a API retornaria o nome da nova empresa pelo token
-  const companyName = "Vans Express"; 
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [local, setLocal] = useState<Record<string, string>>({});
 
-  const handleAccept = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!acceptedTerms) return;
+  const strength = passwordStrength(password);
 
-    setStatus('LOADING');
-    setTimeout(() => {
-      setStatus('SUCCESS');
-      setTimeout(() => navigate('/dashboard'), 2000);
-    }, 1500);
-  };
-
-  if (status === 'SUCCESS') {
+  if (!token) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-10 max-w-md w-full text-center">
-          <CheckCircle2 className="w-20 h-20 text-emerald-500 mx-auto mb-6" />
-          <h2 className="text-2xl font-bold text-white mb-2">Convite Aceito!</h2>
-          <p className="text-slate-400">Você agora faz parte da frota {companyName}. Redirecionando para o painel...</p>
-        </div>
-      </div>
+      <AuthShell
+        title="Convite inválido"
+        subtitle="Este endereço não traz um token de convite. Peça a empresa que reenvie o link."
+        footer={
+          <Link to="/entrar" className="inline-flex min-h-[44px] items-center text-brand-400 underline">
+            Ir para o login
+          </Link>
+        }
+      >
+        <p className="text-sm text-ink-400">Convites valem por 72 horas e são de uso único.</p>
+      </AuthShell>
     );
   }
 
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    const errs: Record<string, string> = {};
+    if (!name.trim()) errs.name = 'Informe seu nome.';
+    if (strength.problems.length) errs.password = strength.problems.join(' · ');
+    if (password !== confirm) errs.confirm = 'As senhas não conferem.';
+    setLocal(errs);
+    if (Object.keys(errs).length) return;
+
+    const ok = await action.run(async () => {
+      const data = await api.post<{ csrfToken: string }>('/company/accept-invite', {
+        token,
+        name: name.trim(),
+        password,
+      });
+      setCsrfToken(data.csrfToken);
+      await reload();
+      return true;
+    });
+
+    if (ok) navigate('/app', { replace: true });
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 font-sans">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-lg w-full">
-        <div className="flex justify-center mb-6">
-          <div className="bg-amber-500/20 p-4 rounded-full border border-amber-500/30">
-            <UserPlus className="w-10 h-10 text-amber-500" />
-          </div>
-        </div>
-
-        <h1 className="text-2xl font-bold text-center text-white mb-2">Convite para Equipe</h1>
-        <p className="text-slate-400 text-center mb-8">
-          Você foi convidado para trabalhar como Motorista na frota <strong className="text-white">{companyName}</strong> 
-          {contractType === 'FREELANCE' ? ' em formato de Bico (Diarista).' : ' em formato Fixo.'}
-        </p>
-
-        <form onSubmit={handleAccept} className="space-y-6">
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4">
-            <h3 className="text-white font-bold flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-amber-500" /> O que muda?
-            </h3>
-            <ul className="space-y-3 text-sm text-slate-400">
-              <li className="flex gap-2">
-                <span className="text-amber-500">•</span>
-                Você fará parte da nova empresa ({companyName}) e receberá as rotas deles.
-              </li>
-              
-              {contractType === 'FULL_TIME' ? (
-                <li className="flex gap-2">
-                  <span className="text-red-400">•</span>
-                  Caso você pertença a outra empresa atualmente, seu contrato antigo será <strong>Arquivado</strong>.
-                </li>
-              ) : (
-                <li className="flex gap-2">
-                  <span className="text-blue-400">•</span>
-                  Como este é um contrato <strong>Freelance</strong>, você NÃO perderá acesso às suas outras empresas. Você poderá alternar entre elas no painel.
-                </li>
-              )}
-              
-              <li className="flex gap-2">
-                <span className="text-emerald-400">•</span>
-                Você não perderá dados antigos. Poderá visualizar planilhas passadas através do seletor "Histórico".
-              </li>
-            </ul>
-          </div>
-
-          <label className="flex items-start gap-3 cursor-pointer group">
-            <div className="relative flex items-center mt-1">
-              <input 
-                type="checkbox" 
-                className="peer sr-only"
-                checked={acceptedTerms}
-                onChange={(e) => setAcceptedTerms(e.target.checked)}
-              />
-              <div className="w-5 h-5 border-2 border-slate-700 rounded bg-slate-950 peer-checked:bg-amber-500 peer-checked:border-amber-500 transition-all flex items-center justify-center">
-                <CheckCircle2 className="w-4 h-4 text-slate-950 opacity-0 peer-checked:opacity-100 transition-opacity" />
-              </div>
-            </div>
-            <span className="text-sm text-slate-300 group-hover:text-white transition-colors">
-              Eu entendo as condições e aceito mudar meu perfil para a nova frota.
-            </span>
-          </label>
-
-          <button 
-            type="submit"
-            disabled={!acceptedTerms || status === 'LOADING'}
-            className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed hover:scale-[1.02]"
-          >
-            {status === 'LOADING' ? 'Processando Contrato...' : 'Aceitar Convite'}
-          </button>
-        </form>
-      </div>
-    </div>
+    <AuthShell
+      title="Aceitar convite"
+      subtitle="Defina seu nome e sua senha para ativar o acesso à empresa que convidou você."
+    >
+      <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
+        <InlineError message={action.error} />
+        <TextInput
+          label="Seu nome"
+          name="name"
+          autoComplete="name"
+          required
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          error={local.name ?? action.fieldErrors.name}
+        />
+        <TextInput
+          label="Senha"
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          error={local.password ?? action.fieldErrors.password}
+          hint="Mínimo de 12 caracteres, com maiúsculas, minúsculas e número."
+        />
+        <TextInput
+          label="Repita a senha"
+          name="confirm"
+          type="password"
+          autoComplete="new-password"
+          required
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          error={local.confirm}
+        />
+        <Button type="submit" loading={action.pending}>
+          Ativar meu acesso
+        </Button>
+      </form>
+    </AuthShell>
   );
-};
-
-export default AcceptInvite;
+}

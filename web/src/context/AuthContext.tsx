@@ -1,70 +1,178 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import {
+  startAuthentication,
+  startRegistration,
+  type PublicKeyCredentialCreationOptionsJSON,
+  type PublicKeyCredentialRequestOptionsJSON,
+} from '@simplewebauthn/browser';
 
-type User = {
-  id: string;
-  name: string;
-  email: string;
-  role: 'OWNER' | 'DRIVER' | 'ASSISTANT' | 'PARENT';
-  token: string;
-};
+import { api, onApiEvent, setCsrfToken } from '../lib/api';
+import type { Me, PermissionFlag, Role } from '../lib/types';
 
-interface AuthContextData {
-  user: User | null;
-  login: (userData: User) => void;
-  logout: () => void;
+type Status = 'loading' | 'authenticated' | 'anonymous';
+
+interface LoginResult {
+  /** Login com 2FA para na primeira etapa e devolve o desafio. */
+  requires2FA?: boolean;
+  challengeId?: string;
 }
 
-const AuthContext = createContext<AuthContextData>({} as AuthContextData);
+interface AuthValue {
+  user: Me | null;
+  status: Status;
+  suspended: boolean;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  loginWithTwoFactor: (challengeId: string, code: string) => Promise<void>;
+  loginWithPasskey: () => Promise<void>;
+  registerPasskey: () => Promise<void>;
+  logout: () => Promise<void>;
+  reload: () => Promise<void>;
+  hasRole: (...roles: Role[]) => boolean;
+  hasPermission: (flag: PermissionFlag) => boolean;
+}
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+const AuthContext = createContext<AuthValue | null>(null);
 
-  useEffect(() => {
-    // Busca os dados do usuário usando o HttpOnly cookie
-    const checkSession = async () => {
-      try {
-        const response = await fetch('http://localhost:3000/api/v1/auth/me', {
-          credentials: 'omit' // Em PRD, mude para 'include' se CORS estiver configurado via domínio
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setUser(data.user);
-        }
-      } catch (error) {
-        console.error('Sessão inválida', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    checkSession();
+interface SessionResponse {
+  csrfToken: string;
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<Me | null>(null);
+  const [status, setStatus] = useState<Status>('loading');
+  const [suspended, setSuspended] = useState(false);
+  const booted = useRef(false);
+
+  const loadMe = useCallback(async () => {
+    const me = await api.get<Me>('/auth/me');
+    setUser(me);
+    setStatus('authenticated');
   }, []);
 
-  const login = (userData: User) => {
-    setUser(userData);
-  };
+  /** Sessao real no boot: quem manda e o cookie, nao um flag guardado no cliente. */
+  useEffect(() => {
+    if (booted.current) return;
+    booted.current = true;
+    void (async () => {
+      try {
+        await loadMe();
+      } catch {
+        setUser(null);
+        setStatus('anonymous');
+      }
+    })();
+  }, [loadMe]);
 
-  const logout = async () => {
-    try {
-      await fetch('http://localhost:3000/api/v1/auth/logout', { method: 'POST' });
-    } catch (e) {}
-    setUser(null);
-  };
-
-  if (loading) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white">Carregando Sessão...</div>;
-
-  return (
-    <AuthContext.Provider value={{ user, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+  /**
+   * O cliente de API avisa quando a sessao morreu em QUALQUER chamada. Sem esta
+   * ponte, uma tela aberta continuaria mostrando dados de uma sessao que o
+   * servidor ja revogou.
+   */
+  useEffect(
+    () =>
+      onApiEvent((event) => {
+        if (event === 'unauthenticated') {
+          setUser(null);
+          setStatus('anonymous');
+        }
+        if (event === 'suspended') setSuspended(true);
+      }),
+    [],
   );
-};
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
+  const login = useCallback(
+    async (email: string, password: string): Promise<LoginResult> => {
+      const data = await api.post<SessionResponse & LoginResult>('/auth/login', {
+        email,
+        password,
+      });
+      if (data.requires2FA) return { requires2FA: true, challengeId: data.challengeId };
+      setCsrfToken(data.csrfToken);
+      // `/auth/login` devolve so o usuario publico; permissoes e empresa vem do
+      // `/auth/me`, que le o vinculo atual no banco.
+      await loadMe();
+      return {};
+    },
+    [loadMe],
+  );
+
+  const loginWithTwoFactor = useCallback(
+    async (challengeId: string, code: string) => {
+      const data = await api.post<SessionResponse>('/auth/2fa/login', { challengeId, code });
+      setCsrfToken(data.csrfToken);
+      await loadMe();
+    },
+    [loadMe],
+  );
+
+  const loginWithPasskey = useCallback(async () => {
+    const challenge = await api.post<{
+      options: PublicKeyCredentialRequestOptionsJSON;
+      challengeId: string;
+    }>('/auth/webauthn/login/options');
+    const response = await startAuthentication({ optionsJSON: challenge.options });
+    const data = await api.post<SessionResponse>('/auth/webauthn/login/verify', {
+      challengeId: challenge.challengeId,
+      response,
+    });
+    setCsrfToken(data.csrfToken);
+    await loadMe();
+  }, [loadMe]);
+
+  const registerPasskey = useCallback(async () => {
+    const options = await api.post<PublicKeyCredentialCreationOptionsJSON>(
+      '/auth/webauthn/register/options',
+    );
+    const response = await startRegistration({ optionsJSON: options });
+    await api.post('/auth/webauthn/register/verify', response);
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/auth/logout');
+    } finally {
+      // Mesmo se o servidor recusar, o cliente esquece a sessao: manter a tela
+      // logada depois de um "sair" e mentir para quem esta na frente do device.
+      setCsrfToken(null);
+      setUser(null);
+      setStatus('anonymous');
+      setSuspended(false);
+    }
+  }, []);
+
+  const reload = useCallback(async () => {
+    try {
+      await loadMe();
+    } catch {
+      setUser(null);
+      setStatus('anonymous');
+    }
+  }, [loadMe]);
+
+  const value = useMemo<AuthValue>(
+    () => ({
+      user,
+      status,
+      suspended,
+      login,
+      loginWithTwoFactor,
+      loginWithPasskey,
+      registerPasskey,
+      logout,
+      reload,
+      hasRole: (...roles: Role[]) => (user ? roles.includes(user.role) : false),
+      // Esconder menu por permissao e UX. A negacao que vale e a do servidor.
+      hasPermission: (flag: PermissionFlag) => Boolean(user?.permissions?.[flag]),
+    }),
+    [user, status, suspended, login, loginWithTwoFactor, loginWithPasskey, registerPasskey, logout, reload],
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth(): AuthValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth precisa estar dentro de <AuthProvider>.');
+  return ctx;
+}

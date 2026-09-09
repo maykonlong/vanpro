@@ -1,0 +1,9 @@
+# Normaliza fim de linha no repositorio.
+# Sem isso, um checkout no Windows e outro no Linux geram diff inteiro de arquivo
+# so por CRLF, e o code review perde o sinal no ruido.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.svg text eol=lf
+*.sh text eol=lf
