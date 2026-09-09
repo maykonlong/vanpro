@@ -21,9 +21,11 @@ import webhookRoutes from './routes/webhookRoutes';
 import uploadRoutes from './routes/uploadRoutes';
 import privacyRoutes from './routes/privacyRoutes';
 import crmRoutes from './routes/crmRoutes';
+import { selfRegister } from './controllers/registerController';
 import { authMiddleware } from './middlewares/authMiddleware';
 import { setupWebSockets } from './websockets';
-import './jobs/billingCron'; // Iniciar CronJobs
+import './jobs/billingCron';        // Trial & Dunning antigo
+import './jobs/billingDunningCron'; // Fase 31: Dunning avançado
 import './jobs/lgpdCron'; // Iniciar Purge LGPD
 import path from 'path';
 
@@ -91,7 +93,10 @@ app.get('/api/v1/health', (req, res) => {
   res.json({ status: 'ok', version: '2.0.0 (VANOS)' });
 });
 
-app.use('/api/v1/auth', authRoutes);
+// Rota pública de Self-Service Register (Fase 31)
+app.post('/api/v1/register', selfRegister);
+
+app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/webhooks', webhookRoutes);
 
 // Rotas Protegidas (Exigem JWT Fingerprint)

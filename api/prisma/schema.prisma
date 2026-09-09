@@ -46,8 +46,15 @@ model Company {
   latitude         Float?
   longitude        Float?
 
+  // Billing & Lifecyle (Fase 31 - The Money Machine)
+  tenantStatus     String            @default("TRIAL") // TRIAL, ACTIVE, PAST_DUE, SUSPENDED
+  trialEndsAt      DateTime?         // Se nulo = cliente já pagante
+  suspendedAt      DateTime?         // Quando foi suspenso
+
   plan             SubscriptionPlan  @relation(fields: [subscriptionId], references: [id])
   saasSubscription SaaSSubscription?
+  auditLogs        AuditLog[]
+  notes            Note[]
   
   // Relacionamentos Inquebráveis (Multi-Tenancy)
   userContracts    UserCompany[]

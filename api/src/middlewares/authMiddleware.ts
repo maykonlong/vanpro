@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { prisma } from '../prisma';
 
-export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
+export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   const token = req.cookies.token;
   
   if (!token) {
@@ -20,6 +21,23 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     if (decoded.fingerprint && decoded.fingerprint !== currentFingerprint) {
       console.warn(`🚨 [SECURITY] Hijacking Detectado! IP: ${req.ip} tentou usar o Token de ${decoded.id}`);
       return res.status(401).json({ error: 'Falha na validação de segurança do dispositivo. Token revogado.' });
+    }
+
+    // FASE 31: Verificar se a empresa está SUSPENSA (Trial expirado ou inadimplência)
+    // Super Admin nunca é bloqueado
+    if (decoded.role !== 'SUPER_ADMIN' && decoded.tenantId) {
+      const company = await prisma.company.findUnique({
+        where: { id: decoded.tenantId },
+        select: { tenantStatus: true, name: true }
+      });
+
+      if (company?.tenantStatus === 'SUSPENDED') {
+        return res.status(402).json({
+          error: 'Conta suspensa.',
+          errorCode: 'ACCOUNT_SUSPENDED',
+          message: `A conta da empresa "${company.name}" está suspensa. Entre em contato para reativar seu plano.`
+        });
+      }
     }
 
     // Injetar dados do usuário na requisição para o RBAC ou Controllers

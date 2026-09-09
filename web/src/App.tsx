@@ -8,6 +8,8 @@ import ParentDashboard from './pages/ParentDashboard';
 import CharterManagement from './pages/owners/CharterManagement';
 import AIMarketingPanel from './pages/owners/AIMarketingPanel';
 import Login from './pages/Login';
+import Register from './pages/Register';
+import Suspended from './pages/Suspended';
 import LandingPage from './pages/public/LandingPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -35,6 +37,8 @@ function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/suspended" element={<Suspended />} />
         
         {/* Rotas Protegidas */}
         <Route path="/app" element={<PrivateRoute><MainLayout /></PrivateRoute>}>
