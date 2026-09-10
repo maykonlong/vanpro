@@ -236,7 +236,9 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
-      - uploads:/app/storage/uploads
+      # Sem volume de uploads: os arquivos vivem no PostgreSQL desde que a
+      # replicacao horizontal passou a ser um objetivo real. Disco local por
+      # replica significava foto que some e volta conforme o balanceador.
       - ./infra/certs/db:/certs:ro
     logging: *log
     restart: unless-stopped
@@ -305,4 +307,3 @@ volumes:
   # nada a resgatar nele:  docker volume rm vanpro_pg_data
   pg_dados_prod:
   redis_data:
-  uploads:

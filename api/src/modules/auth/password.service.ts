@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import { hashEmThread, compareEmThread } from '../../lib/fila-de-senha';
 
 /**
  * Senhas e codigos de recuperacao.
@@ -26,17 +27,26 @@ export const PASSWORD_MAX_AGE_DAYS = 90;
 
 const RECOVERY_CODE_COUNT = 10;
 
+/*
+ * As tres funcoes abaixo passam por `fila-de-senha`: o calculo roda em thread
+ * propria, e a thread principal segue atendendo. O custo 12 continua identico —
+ * o que mudou foi ONDE ele e pago, nao quanto.
+ *
+ * A funcao passada como ultimo argumento e a reserva: se o pool nao subir, ela
+ * roda aqui mesmo. Fica lento como era antes, e continua correto.
+ */
+
 export function hashPassword(plain: string): Promise<string> {
-  return bcrypt.hash(plain, BCRYPT_COST);
+  return hashEmThread(plain, BCRYPT_COST, () => bcrypt.hash(plain, BCRYPT_COST));
 }
 
 export function verifyPassword(plain: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(plain, hash);
+  return compareEmThread(plain, hash, () => bcrypt.compare(plain, hash));
 }
 
 /** Queima o mesmo tempo de um compare real. Chamar sempre que o usuario nao existir. */
 export async function dummyCompare(plain: string): Promise<void> {
-  await bcrypt.compare(plain, DUMMY_HASH);
+  await compareEmThread(plain, DUMMY_HASH, () => bcrypt.compare(plain, DUMMY_HASH));
 }
 
 /**

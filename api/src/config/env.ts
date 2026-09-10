@@ -127,7 +127,6 @@ export const envSchema = z
     WHATSAPP_PHONE_ID: opcional(z.string().min(1)),
 
     // --- Uploads ---
-    UPLOAD_DIR: z.string().default('./storage/uploads'),
     UPLOAD_MAX_BYTES: z.coerce.number().int().default(5 * 1024 * 1024),
 
     // --- Observabilidade ---

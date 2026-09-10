@@ -286,6 +286,22 @@ else
   falhar "sonda de vida atras do limitador"     "liveness que depende do cache transforma cache lento em reinicio de contentor"
 fi
 
+# --- 20. calculo de senha fora da fila principal -----------------------------
+# Medido: com `bcryptjs` na thread principal, um hash de custo 12 deixou o event
+# loop com 5 tiques de 51 possiveis — o processo praticamente parado por meio
+# segundo, a cada login. Nao e o login que fica lento; e todo mundo. Pela fila
+# de threads, os mesmos 0,9s deixaram 62 tiques de 97.
+#
+# A tentacao, quando o numero de latencia incomodar, sera baixar o custo do
+# bcrypt. Isso melhora o grafico e piora exatamente o que o custo protege. Este
+# guarda existe para que a proxima pessoa encontre a decisao escrita.
+if grep -qE "^\s*(return |await )?(hashEmThread|compareEmThread)\(" api/src/modules/auth/password.service.ts 2>/dev/null &&
+   ! grep -qE "^\s*return bcrypt\.(hash|compare)\(" api/src/modules/auth/password.service.ts 2>/dev/null; then
+  ok "senha calculada fora da fila principal"
+else
+  falhar "senha voltou para a thread principal"     "bcrypt sincrono bloqueia o processo inteiro por ~0,9s a cada login — use fila-de-senha"
+fi
+
 echo
 if [ "$FALHAS" -gt 0 ]; then
   printf '\033[31m%d guarda(s) falharam.\033[0m\n' "$FALHAS"

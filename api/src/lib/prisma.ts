@@ -26,6 +26,7 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   'AIPost',
   'UserCompany',
   'AuditLog',
+  'Upload',
 ]);
 
 /** Operacoes cujo `where` deve receber o filtro de tenant. */

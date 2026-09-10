@@ -87,9 +87,6 @@ RUN set -eu; \
     chown vanpro:vanpro /app/.versao-conteudo; \
     test -s /app/.versao-conteudo
 
-# O filesystem sobe read-only no compose; uploads vao para volume montado aqui.
-RUN mkdir -p /app/storage/uploads && chown -R vanpro:vanpro /app/storage
-
 USER vanpro
 EXPOSE 3000
 

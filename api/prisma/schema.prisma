@@ -22,7 +22,7 @@ model SubscriptionPlan {
   maxVehicles   Int
   maxDrivers    Int
   maxStudents   Int     @default(50)
-  priceCents    Int    // centavos. Dinheiro em Float perde centavo em soma - BACEN 4658.
+  priceCents    Int // centavos. Dinheiro em Float perde centavo em soma - BACEN 4658.
   gatewayPlanId String?
 
   companies Company[]
@@ -69,6 +69,7 @@ model Company {
   invoices      Invoice[]
   expenses      Expense[]
   charters      Charter[]
+  uploads       Upload[]
   aiCampaigns   AICampaign[]
   aiPosts       AIPost[]
   auditLogs     AuditLog[]
@@ -268,18 +269,18 @@ model Vehicle {
 }
 
 model Driver {
-  id        String   @id @default(uuid())
-  companyId String
-  name      String
+  id             String   @id @default(uuid())
+  companyId      String
+  name           String
   /// A MESMA pessoa pode ser motorista em mais de uma frota, com diaria
   /// diferente em cada uma — e isso que define o freelancer. Por isso a
   /// unicidade e por empresa (@@unique abaixo), e nao global.
-  userId    String?
-  shiftType String   @default("MORNING") // MORNING, AFTERNOON, FULL
-  dailyRateCents Int   @default(0) // centavos
-  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  userId         String?
+  shiftType      String   @default("MORNING") // MORNING, AFTERNOON, FULL
+  dailyRateCents Int      @default(0) // centavos
+  status         String   @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user      User?      @relation(fields: [userId], references: [id])
@@ -292,14 +293,14 @@ model Driver {
 }
 
 model Student {
-  id         String @id @default(uuid())
-  companyId  String
-  name       String /// @encrypted
-  school     String
-  grade      String @default("")
-  shift      String // MORNING, AFTERNOON, FULL
-  monthlyFeeCents Int  @default(0) // centavos
-  status     String @default("PENDING") // PENDING, BOARDED, DELIVERED, ABSENT
+  id              String @id @default(uuid())
+  companyId       String
+  name            String /// @encrypted
+  school          String
+  grade           String @default("")
+  shift           String // MORNING, AFTERNOON, FULL
+  monthlyFeeCents Int    @default(0) // centavos
+  status          String @default("PENDING") // PENDING, BOARDED, DELIVERED, ABSENT
 
   parentId String?
   parent   User?   @relation("ParentToStudent", fields: [parentId], references: [id])
@@ -373,16 +374,16 @@ model Punch {
 // ====================================================
 
 model FinancialTransaction {
-  id         String    @id @default(uuid())
-  companyId  String
-  studentId  String
+  id          String    @id @default(uuid())
+  companyId   String
+  studentId   String
   amountCents Int
-  paid       Boolean   @default(false)
-  paidAt     DateTime?
-  dueDate    DateTime
-  externalId String?   @unique
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  paid        Boolean   @default(false)
+  paidAt      DateTime?
+  dueDate     DateTime
+  externalId  String?   @unique
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   student Student @relation(fields: [studentId], references: [id])
@@ -392,16 +393,16 @@ model FinancialTransaction {
 }
 
 model Invoice {
-  id         String   @id @default(uuid())
-  companyId  String
-  studentId  String
-  gatewayId  String?  @unique
+  id          String   @id @default(uuid())
+  companyId   String
+  studentId   String
+  gatewayId   String?  @unique
   amountCents Int
-  status     String   @default("PENDING") // PENDING, RECEIVED, OVERDUE, CANCELED
-  dueDate    DateTime
-  paymentUrl String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  status      String   @default("PENDING") // PENDING, RECEIVED, OVERDUE, CANCELED
+  dueDate     DateTime
+  paymentUrl  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -436,6 +437,40 @@ model Expense {
 // ====================================================
 // AUDITORIA (append-only, encadeada por hash)
 // ====================================================
+
+/// Arquivo enviado pelo usuario — hoje, foto de aluno.
+///
+/// Os bytes ficam NO BANCO, e nao no disco da maquina. Guardar em disco local
+/// significa que, com duas replicas, a foto enviada numa nao existe na outra: a
+/// miniatura some e volta conforme o balanceador, de forma intermitente e
+/// praticamente impossivel de diagnosticar pelo suporte. E o classico fator VI
+/// do 12-factor, e era um dos dois itens que travavam a segunda replica.
+///
+/// A alternativa canonica seria armazenamento de objetos (S3 e afins). Para o
+/// tamanho deste produto — foto de aluno, teto de 2 MB, algumas centenas por
+/// frota — o banco resolve sem servico novo E herda de graca tudo o que ja foi
+/// construido em volta dele: isolamento por empresa na camada de dados, TLS na
+/// conexao, backup com restauracao ja exercitada e o mesmo procedimento de
+/// retencao. Trocar por S3 vira decisao no dia em que esta tabela passar de
+/// alguns GB — e ai o `url` ja e o ponto unico de mudanca.
+model Upload {
+  /// O proprio nome do arquivo servido: UUID + extensao. Nada que o cliente
+  /// enviou sobrevive no identificador.
+  id         String   @id
+  companyId  String
+  mimeType   String
+  sizeBytes  Int
+  /// Conteudo. `Bytes` vira `bytea` no PostgreSQL.
+  conteudo   Bytes
+  createdAt  DateTime @default(now())
+  /// Quem enviou. Sem `onDelete: Cascade`: apagar a pessoa nao pode apagar a
+  /// foto do aluno, que pertence a frota.
+  uploadedBy String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+}
 
 model AuditLog {
   id          String   @id @default(uuid())

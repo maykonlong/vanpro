@@ -3,6 +3,7 @@ import { env } from './config/env';
 import { logger } from './lib/logger';
 import { prisma } from './lib/prisma';
 import { connectRedis, disconnectRedis } from './lib/redis';
+import { encerrarPoolDeSenha } from './lib/fila-de-senha';
 import { runUnscoped } from './lib/request-context';
 import { createApp } from './http/app';
 import { setupRealtime, closeRealtime } from './realtime/server';
@@ -52,6 +53,7 @@ async function main() {
     await closeRealtime();
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     await disconnectRedis();
+    await encerrarPoolDeSenha();
     await prisma.$disconnect();
 
     logger.info('encerrado');

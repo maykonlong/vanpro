@@ -307,6 +307,39 @@ describe('upload de arquivo', () => {
     expect(res.status).toBeLessThan(500);
   });
 
+  it('o arquivo vive no BANCO, nao no disco da maquina', async () => {
+    /*
+     * Este teste existe por causa da segunda replica.
+     *
+     * Enquanto os bytes ficavam em `fs.writeFile`, a foto enviada numa maquina
+     * nao existia na outra: a miniatura sumia e voltava conforme o balanceador,
+     * de forma intermitente e praticamente impossivel de diagnosticar pelo
+     * suporte ("na minha funciona"). Guardar no banco — que ja e compartilhado,
+     * ja e isolado por empresa e ja entra no backup — resolve sem servico novo.
+     *
+     * O que se prova aqui e a propriedade, nao a implementacao: o conteudo
+     * devolvido pela rota e byte a byte o que foi enviado, e ele esta numa
+     * linha de tabela que qualquer replica enxerga.
+     */
+    const dono = await autenticar('dono.alfa@teste.com.br');
+    const enviado = await dono.upload('/api/v1/uploads', 'file', 'foto.png', PNG, 'image/png');
+
+    const [linha] = await runUnscoped('check', () =>
+      prisma.$queryRaw<Array<{ id: string; companyId: string; sizeBytes: number; octetos: number }>>`
+        SELECT id, "companyId", "sizeBytes", octet_length(conteudo) AS octetos
+          FROM "Upload" WHERE id = ${enviado.body.filename}`,
+    );
+
+    expect(linha, 'o arquivo precisa existir como linha no banco').toBeTruthy();
+    expect(linha!.companyId).toBe(alfa.id);
+    expect(Number(linha!.octetos)).toBe(PNG.length);
+    expect(linha!.sizeBytes).toBe(PNG.length);
+
+    // E o que a rota devolve e exatamente o que entrou.
+    const baixado = await dono.get(`/api/v1/uploads/${alfa.id}/${enviado.body.filename}`);
+    expect(Buffer.from(baixado.body).equals(PNG)).toBe(true);
+  });
+
   it('excluir arquivo e do OWNER, e arquivo inexistente devolve 404', async () => {
     const dono = await autenticar('dono.alfa@teste.com.br');
     const enviado = await dono.upload('/api/v1/uploads', 'file', 'foto.png', PNG, 'image/png');

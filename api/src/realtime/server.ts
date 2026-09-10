@@ -1,11 +1,13 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server, type Socket } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
 import { env } from '../config/env';
 import { logger } from '../lib/logger';
 import { prisma } from '../lib/prisma';
 import { runUnscoped } from '../lib/request-context';
 import { verifyAccessToken, cookieNames } from '../modules/auth/session.service';
 import { setSocketServer } from './emitter';
+import { redis, redisHealthy } from '../lib/redis';
 
 /**
  * WebSocket autenticado e isolado por empresa.
@@ -122,6 +124,36 @@ export function setupRealtime(httpServer: HttpServer): Server {
     maxHttpBufferSize: 64 * 1024,
     pingTimeout: 20_000,
   });
+
+  /*
+   * Adaptador de Redis: o tempo real atravessa replicas.
+   *
+   * Sem ele, cada processo so conhece os proprios sockets. Com duas replicas
+   * atras do balanceador, a mae conectada na replica A simplesmente NAO recebe
+   * a posicao que o motorista publicou na B — metade dos responsaveis perde o
+   * mapa da van, de forma intermitente e praticamente impossivel de
+   * diagnosticar pelo suporte ("na minha funciona").
+   *
+   * Nao e melhoria: e pre-requisito da segunda replica. Ligado agora, com uma
+   * replica, ele nao muda nada — e e exatamente por isso que este e o momento
+   * de ligar, em vez do dia em que alguem duplicar o servico.
+   *
+   * Duas conexoes proprias, e nao a compartilhada: o modo de inscricao do Redis
+   * bloqueia a conexao para comandos normais, entao reusar `redis` aqui mataria
+   * o rate limit. `duplicate()` herda a configuracao — inclusive o teto de
+   * tempo por comando.
+   */
+  if (redisHealthy()) {
+    const publicador = redis.duplicate();
+    const assinante = redis.duplicate();
+    io.adapter(createAdapter(publicador, assinante));
+    logger.info('tempo real usando Redis — eventos atravessam replicas');
+  } else {
+    // Degradacao explicita, nao silenciosa: com uma replica o produto funciona
+    // igual; com duas, esta linha e o aviso de que metade dos clientes nao
+    // recebera evento nenhum.
+    logger.warn('Redis indisponível no boot do tempo real — eventos NÃO atravessam réplicas');
+  }
 
   io.use(async (socket, next) => {
     const resultado = await autenticarHandshake(socket.handshake.headers.cookie);
