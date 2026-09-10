@@ -353,6 +353,51 @@ EOF
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
+titulo 'O que esta REALMENTE no ar'
+
+# Por que este bloco existe.
+#
+# Depois de um commit de correcao, medi a defesa contra Redis lento e ela falhou
+# exatamente como antes — porque o contentor no ar rodava um `dist/` de tres
+# horas atras. O codigo estava certo no disco e errado na maquina. Sem esta
+# verificacao, o proximo relatorio diria "corrigido" sobre um artefato que nao
+# contem a correcao, e ninguem teria como saber.
+#
+# O carimbo ja existia (`/interno/version`, gravado no build). Faltava alguem
+# conferir.
+#
+# `/interno` nao e exposto pelo nginx de proposito (rede interna), entao aqui
+# so da para conferir de dentro: se a sonda nao responder, isto e NAO VERIFICADO
+# e nao aprovacao.
+SHA_LOCAL="$(git rev-parse --short HEAD 2>/dev/null || echo desconhecido)"
+VERSAO_NO_AR="$($CURL "$BASE/api/v1/interno/version" 2>/dev/null || true)"
+
+# `/interno` e NEGADO no nginx de proposito — o carimbo fica na rede interna.
+# Resposta que nao e o JSON esperado significa "nao deu para medir daqui", e
+# nao "o artefato esta errado". Confundir as duas coisas transformaria uma
+# defesa (a rota nao vazar para fora) em reprovacao do deploy.
+case "$VERSAO_NO_AR" in
+  *'"gitSha"'*) medivel=sim ;;
+  *)            medivel=nao ;;
+esac
+
+if [ "$medivel" = nao ]; then
+  NV "carimbo de versao nao alcancavel por $BASE — esperado: /interno e negado na borda.
+      De dentro do host:
+        docker exec vanpro-api wget -qO- localhost:3000/api/v1/interno/version
+      Compare o gitSha com o commit implantado. Sem isso NAO da para afirmar que
+      o artefato no ar contem o codigo que voce acabou de revisar."
+elif [ "$SHA_LOCAL" = desconhecido ]; then
+  NV "sem git nesta maquina — nao da para comparar o carimbo com o commit."
+elif printf '%s' "$VERSAO_NO_AR" | grep -q "$SHA_LOCAL"; then
+  PASS "artefato no ar carrega o commit atual ($SHA_LOCAL)"
+else
+  FAIL "o artefato no ar NAO e o commit atual ($SHA_LOCAL). Resposta: $(printf '%s' "$VERSAO_NO_AR" | head -c 200)
+      Reconstrua antes de medir qualquer coisa: docker compose up -d --build api web"
+fi
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 titulo 'Veredito'
 printf '  %d OK · %d falha(s) · %d nao verificado(s)\n\n' "$ok" "$falhou" "$naoverificado"
 

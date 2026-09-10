@@ -110,6 +110,13 @@ services:
       # e o caminho mais comum para o disco encher sem ninguem entender por que.
       - -c
       - idle_in_transaction_session_timeout=60000
+      # Espera por TRAVA tem teto proprio, menor que o da consulta: uma
+      # migration ou um `UPDATE` concorrente que segura a linha faz a requisicao
+      # do usuario ficar parada sem consumir CPU — o `statement_timeout` conta
+      # esse tempo, mas 30s de espera silenciosa e uma tela travada. 5s e o
+      # limite do que alguem aceita antes de recarregar a pagina.
+      - -c
+      - lock_timeout=5000
       # Conexao rejeitada por pg_hba precisa aparecer no log, senao "a API nao
       # conecta" vira uma tarde de adivinhacao.
       - -c
@@ -160,6 +167,17 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+      args:
+        # Carimbo do commit tambem no build LOCAL, e nao so no CI.
+        #
+        # Sem isto a imagem local responde `gitSha: "nao-carimbada"`, e a
+        # verificacao "o que esta no ar e o commit atual?" nao tem o que
+        # comparar — justamente na maquina onde o descompasso acontece. Foi
+        # assim que uma correcao de disponibilidade foi medida contra um
+        # artefato de tres horas antes e "reprovou" de novo.
+        #
+        # `:-` para o build seguir funcionando fora de um repositorio git.
+        GIT_SHA: ${GIT_SHA:-}
     container_name: vanpro-api
     depends_on:
       postgres:

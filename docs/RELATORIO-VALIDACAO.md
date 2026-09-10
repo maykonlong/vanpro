@@ -43,9 +43,9 @@ Removidos: `backend/` e `frontend/` (segunda stack morta), `data_storage.json`,
 
 ## 3. Verificado por execução
 
-### 3.1 Suíte de testes — `376 / 376`
+### 3.1 Suíte de testes — `379 / 379`
 
-`npx vitest run --coverage` contra **PostgreSQL real** (`vanpro_test`), 19
+`npx vitest run --coverage` contra **PostgreSQL real** (`vanpro_test`), 20
 arquivos. Sem mock de banco: fixture testa a unidade, só o banco testa o
 sistema.
 
@@ -159,7 +159,7 @@ declarar a ausência:
 | "nenhuma empresa do seed está suspensa" | o seed passou a ter uma quarta empresa em `SUSPENDED` (D-10). |
 
 
-### 3.7 Guardas de regressão — 17 / 17
+### 3.7 Guardas de regressão — 19 / 19
 
 `bash infra/scripts/guards.sh`. Cada guarda corresponde a um defeito que
 existiu neste repositório: segredo com valor padrão, identificador simulado,
@@ -246,9 +246,9 @@ que o produto está desenhado hoje (D-05).
 
 O que sustenta o GO, e foi medido:
 
-- 376 testes contra PostgreSQL real, com o piso de cobertura falhando o build.
+- 379 testes contra PostgreSQL real, com o piso de cobertura falhando o build.
 - 97 cenários de ponta a ponta contra a pilha em modo produção, zero pulados.
-- 17 guardas estáticas, cada uma correspondendo a um defeito que existiu aqui.
+- 19 guardas estáticas, cada uma correspondendo a um defeito que existiu aqui.
 - Isolamento entre empresas provado ao vivo, na camada de dados e por HTTP.
 - Criptografia em repouso conferida no disco; banco em TLS 1.3 com verificação
   da outra ponta e papel de aplicação sem DDL.
@@ -274,8 +274,8 @@ docker compose up -d --build            # pilha completa, modo produção
 cd api && npm ci && npx prisma migrate deploy && npm run prisma:seed
 
 npm run typecheck                       # 0 erros
-npm run test:coverage                   # 376/376, cobertura acima do piso
-cd .. && bash infra/scripts/guards.sh              # 17/17
+npm run test:coverage                   # 379/379, cobertura acima do piso
+cd .. && bash infra/scripts/guards.sh              # 19/19
 node infra/scripts/audit-route-guards.mjs          # 0 rotas sem guarda
 bash infra/scripts/check-accepted-risks.sh         # nenhum prazo vencido
 

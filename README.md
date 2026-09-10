@@ -77,6 +77,14 @@ rodá-lo dez vezes deixa o banco igual a rodá-lo uma.
 
 Senha **`VanPro@Demo2026`** para todas as contas.
 
+O **administrador da plataforma tem segundo fator obrigatório**: o console que
+suspende frotas exige uma sessão de dois fatores, e senha sozinha não abre. O
+segredo TOTP da demonstração é `KRSXG5CTMVRXEZLUGE3TMNZS` — cadastre-o no seu
+aplicativo autenticador, ou gere o código com
+`npx otplib-cli KRSXG5CTMVRXEZLUGE3TMNZS`. Ele é público de propósito: é dado de
+demonstração, e o seed **recusa rodar** com `APP_ENV=production` justamente
+porque em produção isso seria entrega de acesso.
+
 | E-mail | Papel | Empresa |
 |---|---|---|
 | `admin@vanpro.com.br` | SUPER_ADMIN | plataforma |
@@ -187,7 +195,7 @@ testa a unidade, só o banco de verdade testa o sistema.
 
 ```bash
 cd api
-npm test                 # suíte completa — 376 cenários
+npm test                 # suíte completa — 379 cenários
 npm run test:coverage    # com cobertura (o piso falha o build)
 ```
 
@@ -216,7 +224,7 @@ ausente (empresa suspensa, segunda página, segundo dispositivo) passou a
 bash infra/scripts/guards.sh
 ```
 
-17 verificações estáticas, uma para cada defeito que já existiu neste
+19 verificações estáticas, uma para cada defeito que já existiu neste
 repositório: segredo com valor padrão, identificador simulado no banco, `console.*`,
 `as any`, token de sessão no corpo da resposta, filtro de tenant escrito à mão,
 rota sem guarda de papel, webhook sem assinatura, dinheiro em float, SQLite,

@@ -2,7 +2,15 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { prisma } from '../../src/lib/prisma';
 import { runUnscoped } from '../../src/lib/request-context';
 import { verifyChain } from '../../src/lib/audit';
-import { criarEmpresa, criarUsuario, autenticar, type Empresa } from '../helpers/factory';
+import { authenticator } from 'otplib';
+import {
+  criarEmpresa,
+  criarUsuario,
+  autenticar,
+  Cliente,
+  SEGREDO_2FA_TESTE,
+  type Empresa,
+} from '../helpers/factory';
 
 /**
  * Console da plataforma.
@@ -40,6 +48,70 @@ async function estadoDe(companyId: string) {
     }),
   );
 }
+
+describe('segundo fator na porta do console', () => {
+  /*
+   * O buraco que este bloco fecha.
+   *
+   * A primeira versao do guarda conferia `isTwoFactorEnabled` — a bandeira do
+   * CADASTRO. Ela continua verdadeira para quem entra por passkey, que completa
+   * o login sem TOTP nenhum e, sem verificacao de usuario, prova so POSSE da
+   * chave. Um toque abria o console que suspende qualquer frota cliente.
+   *
+   * Agora o guarda le como ESTA SESSAO foi autenticada.
+   */
+  async function sessaoCom(metodo: string) {
+    const c = new Cliente();
+    const login = await c.login(PLATAFORMA);
+    expect(login.body.requires2FA, 'a conta de plataforma precisa exigir 2FA').toBe(true);
+    const segunda = await c.post('/api/v1/auth/2fa/login', {
+      challengeId: login.body.challengeId,
+      code: authenticator.generate(SEGREDO_2FA_TESTE),
+    });
+    expect(segunda.status).toBe(200);
+
+    // Reescreve o metodo da sessao para simular o caminho alternativo de login
+    // sem repetir a cerimonia WebAuthn inteira dentro do teste.
+    await runUnscoped('fixture', () =>
+      prisma.session.updateMany({ where: { revokedAt: null }, data: { authMethod: metodo } }),
+    );
+    return c;
+  }
+
+  it('sessao de senha+totp entra', async () => {
+    const c = await sessaoCom('senha+totp');
+    expect((await c.get('/api/v1/platform/companies')).status).toBe(200);
+  });
+
+  it('sessao de passkey COM verificacao do usuario entra', async () => {
+    // Biometria ou PIN no dispositivo soma "algo que voce e/sabe" a "algo que
+    // voce tem" — sao dois fatores de verdade.
+    const c = await sessaoCom('passkey+uv');
+    expect((await c.get('/api/v1/platform/companies')).status).toBe(200);
+  });
+
+  it('sessao de passkey SEM verificacao e recusada — posse sozinha e um fator', async () => {
+    const c = await sessaoCom('passkey');
+    const res = await c.get('/api/v1/platform/companies');
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toContain('segundo fator');
+  });
+
+  it('sessao so de senha e recusada, mesmo com 2FA cadastrado na conta', async () => {
+    const c = await sessaoCom('senha');
+    expect((await c.get('/api/v1/platform/companies')).status).toBe(403);
+  });
+
+  it('a recusa vale tambem para a ESCRITA, nao so para a listagem', async () => {
+    const c = await sessaoCom('passkey');
+    const res = await c.patch(`/api/v1/platform/companies/${alfa.id}/status`, {
+      status: 'SUSPENDED',
+      reason: 'tentativa a partir de sessao de fator unico',
+    });
+    expect(res.status).toBe(403);
+    expect((await estadoDe(alfa.id))!.tenantStatus).not.toBe('SUSPENDED');
+  });
+});
 
 describe('quem pode operar o console', () => {
   it('o dono de uma frota nao enxerga a lista de frotas da plataforma', async () => {

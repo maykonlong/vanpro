@@ -218,6 +218,90 @@ jobs:
       - name: Migrations sem remocao nao declarada
         run: bash infra/scripts/check-migration-safety.sh
 
+  e2e:
+    name: E2E — a pilha inteira, como o usuario usa
+    runs-on: ubuntu-latest
+    needs: [api, web]
+
+    # Por que este job existe, e por que ele e caro de proposito.
+    #
+    # Os jobs `api` e `web` provam as partes. Nenhum deles prova o produto: o
+    # botao que chama a rota certa, o cookie que atravessa o nginx, o CSRF que
+    # o front manda, a sessao que sobrevive ao proxy. Tres dos defeitos mais
+    # caros deste repositorio — o refresh anonimo que trancava o login de uma
+    # escola inteira, a paginacao inalcancavel e o ponto que mandava bater
+    # entrada quando o servidor ia recusar — so aparecem com a pilha de pe.
+    #
+    # Roda contra o MESMO compose de producao, com TLS, e nao contra o Vite.
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Gerar segredos e certificados
+        run: |
+          node infra/scripts/gen-secrets.mjs --write
+          bash infra/scripts/gerar-certificados.sh
+
+      - name: Subir a pilha completa
+        run: |
+          docker compose up -d --build
+          for _ in $(seq 1 60); do
+            estado=$(docker inspect -f '{{.State.Health.Status}}' vanpro-api 2>/dev/null || echo iniciando)
+            [ "$estado" = healthy ] && break
+            sleep 3
+          done
+          docker inspect -f '{{.State.Health.Status}}' vanpro-api | grep -q healthy
+
+      - name: Semear dados de demonstracao
+        working-directory: api
+        run: |
+          npm ci
+          npm run prisma:seed
+
+      - name: Instalar navegador
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: E2E
+        working-directory: web
+        run: npx playwright test
+
+      # Sem cenario pulado. Pulo e honesto no texto e invisivel no verde: a
+      # suite passava sem nunca ter exercitado cadastro de empresa, upload,
+      # paginacao nem conta suspensa. Este passo falha se algum voltar.
+      - name: Nenhum cenario pulado
+        working-directory: web
+        run: |
+          # Ignora linha de comentario: a explicacao do defeito CITA
+          # `test.skip`, e um guarda que le comentario como codigo aprova
+          # exatamente o que deveria barrar — ja aconteceu duas vezes neste
+          # repositorio, e com tres scanners de mercado.
+          if grep -rnE "^[[:space:]]*(await[[:space:]]+)?test\.skip\(" e2e/*.spec.ts; then
+            echo "FALHA: cenario pulado — crie o estado em vez de declarar nao verificado"
+            exit 1
+          fi
+          echo "ok: nenhum test.skip"
+
+      - name: Diagnostico quando falha
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --tail=120 api web
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
+
   docker:
     name: Imagens sobem
     runs-on: ubuntu-latest

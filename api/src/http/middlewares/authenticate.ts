@@ -10,6 +10,8 @@ export interface AuthState {
   role: string;
   tenantId: string | null;
   sessionId: string;
+  /** `senha`, `senha+totp`, `passkey` ou `passkey+uv` — ver `session.service`. */
+  authMethod: string;
   permissions: {
     canManageFinance: boolean;
     canManageHR: boolean;
@@ -82,7 +84,7 @@ export const authenticate: RequestHandler = async (req: Request, res: Response, 
     const session = await runUnscoped('auth-session-check', () =>
       prisma.session.findUnique({
         where: { id: claims.sid },
-        select: { revokedAt: true, expiresAt: true, userId: true, companyId: true },
+        select: { revokedAt: true, expiresAt: true, userId: true, companyId: true, authMethod: true },
       }),
     );
 
@@ -187,6 +189,11 @@ export const authenticate: RequestHandler = async (req: Request, res: Response, 
       role: papelEfetivo,
       tenantId,
       sessionId: claims.sid,
+      // Como ESTA sessao foi autenticada — nao o que o usuario tem cadastrado.
+      // Quem decide autorizacao precisa da segunda informacao, nunca da
+      // primeira: a bandeira `isTwoFactorEnabled` continua verdadeira enquanto
+      // a pessoa entra por um caminho que nao passou pelo segundo fator.
+      authMethod: session.authMethod,
       permissions,
       contractStatus,
     };

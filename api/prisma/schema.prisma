@@ -159,6 +159,19 @@ model Session {
   familyId      String
   tokenHash     String    @unique
   userAgentHash String
+  /// Como esta sessao foi autenticada: `senha`, `senha+totp`, `passkey`,
+  /// `passkey+uv`.
+  ///
+  /// Existe porque "o usuario TEM segundo fator" e "esta sessao PASSOU pelo
+  /// segundo fator" sao afirmacoes diferentes, e so a segunda autoriza. O
+  /// console da plataforma exigia a bandeira `isTwoFactorEnabled` e era aberto
+  /// por um toque em passkey sem verificacao de usuario — posse sozinha, um
+  /// fator so.
+  ///
+  /// Fica na SESSAO, e nao no token: a rotacao do refresh reescreve o token, e
+  /// um dado de autenticacao que some na primeira renovacao nao serve para
+  /// decidir autorizacao quinze minutos depois.
+  authMethod    String    @default("senha")
   ipAddress     String?
   expiresAt     DateTime
   revokedAt     DateTime?

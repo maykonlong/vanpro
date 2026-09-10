@@ -133,7 +133,46 @@ const RUAS = [
  */
 const SEGREDO_2FA_DEMO = 'KRSXG5CTMVRXEZLUGE3TMNZS';
 
+/**
+ * Trava de ambiente.
+ *
+ * Este arquivo cria usuarios com senha publicada no README e liga o segundo
+ * fator do administrador da plataforma com um segredo TOTP que esta no
+ * repositorio. Rodado contra producao por engano — um `npm run prisma:seed` na
+ * janela errada do terminal — ele entrega o console da plataforma a quem leu o
+ * README, e o `upsert` ainda por cima SOBRESCREVE o segredo de quem ja tinha um
+ * de verdade.
+ *
+ * Nao havia guarda nenhum. A recusa e por ambiente, e a variavel de escape
+ * existe porque um ambiente de homologacao pode legitimamente querer dados de
+ * demonstracao — mas quem a usa esta declarando que sabe o que faz.
+ */
+function recusarEmProducao(): void {
+  const ambiente = process.env.APP_ENV ?? 'local';
+  if (ambiente !== 'production' || process.env.SEED_ACEITO_EM_PRODUCAO === 'sim') {
+    if (ambiente === 'production') {
+      logger.warn('seed rodando em PRODUCAO por escolha explicita (SEED_ACEITO_EM_PRODUCAO=sim)');
+    }
+    return;
+  }
+  process.stderr.write(
+    [
+      '',
+      '[SEED RECUSADO] APP_ENV=production.',
+      '',
+      'Este seed cria contas com senha publicada no README e liga 2FA com um',
+      'segredo que esta no repositorio. Em producao isso e entrega de acesso.',
+      '',
+      'Se e realmente o que voce quer, declare: SEED_ACEITO_EM_PRODUCAO=sim',
+      '',
+    ].join('\n'),
+  );
+  process.exit(1);
+}
+
 async function main() {
+  recusarEmProducao();
+
   await runUnscoped('seed', async () => {
     const senha = await bcrypt.hash(SENHA_DEMO, 12);
 

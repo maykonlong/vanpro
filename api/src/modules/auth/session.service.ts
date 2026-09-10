@@ -97,14 +97,28 @@ export interface SujeitoDaSessao {
   companyId: string | null;
 }
 
+/**
+ * Como a sessao foi autenticada.
+ *
+ * `senha` e `passkey` sao UM fator. `senha+totp` e `passkey+uv` sao dois — no
+ * segundo caso porque a chave exigiu biometria ou PIN no proprio dispositivo,
+ * o que soma "algo que voce e/sabe" a "algo que voce tem".
+ */
+export type MetodoDeAutenticacao = 'senha' | 'senha+totp' | 'passkey' | 'passkey+uv';
+
+export function temSegundoFator(metodo: string): boolean {
+  return metodo === 'senha+totp' || metodo === 'passkey+uv';
+}
+
 /** Cria uma familia de sessao nova (login). */
 export async function issueSession(
   req: Request,
   res: Response,
   user: SujeitoDaSessao,
+  metodo: MetodoDeAutenticacao = 'senha',
 ): Promise<IssuedSession> {
   const familyId = crypto.randomUUID();
-  return rotate(req, res, user, familyId, null);
+  return rotate(req, res, user, familyId, null, metodo);
 }
 
 async function rotate(
@@ -113,6 +127,7 @@ async function rotate(
   user: SujeitoDaSessao,
   familyId: string,
   previousSessionId: string | null,
+  metodo: MetodoDeAutenticacao = 'senha',
 ): Promise<IssuedSession> {
   const refreshRaw = crypto.randomBytes(48).toString('base64url');
   const expiresAt = new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
@@ -125,6 +140,7 @@ async function rotate(
         familyId,
         tokenHash: hash(refreshRaw),
         userAgentHash: userAgentHash(req),
+        authMethod: metodo,
         ipAddress: req.ip ?? null,
         expiresAt,
       },
@@ -238,6 +254,11 @@ export async function refreshSession(req: Request, res: Response): Promise<Issue
     { id: session.user.id, role: papel, companyId: session.companyId },
     session.familyId,
     session.id,
+    // O metodo ATRAVESSA a rotacao. Sem isto, quinze minutos depois de entrar
+    // com senha + TOTP a sessao voltaria a valer como "senha" e perderia o
+    // acesso ao console — ou, pior, o contrario: uma sessao de fator unico
+    // ganharia o carimbo padrao e passaria a ser aceita.
+    (session.authMethod as MetodoDeAutenticacao) ?? 'senha',
   );
 }
 

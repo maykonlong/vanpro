@@ -113,11 +113,60 @@ let travaObtida = false;
  */
 async function travarSuite(): Promise<void> {
   if (travaObtida) return;
-  travaObtida = true;
-  // GUARDA: sql-cru-auditado — trava consultiva de sessao, sem tabela envolvida.
-  await runUnscoped('test-lock', () =>
-    prisma.$executeRaw`SELECT pg_advisory_lock(${TRAVA_DA_SUITE}::bigint)`,
-  );
+
+  /*
+   * `pg_try_advisory_lock` num laco com prazo, e nao `pg_advisory_lock` que
+   * espera.
+   *
+   * Duas razoes, as duas descobertas doendo:
+   *
+   *   1. A trava e de SESSAO e sobrevive enquanto a conexao viver. Uma suite
+   *      interrompida (Ctrl+C, `| head` que fecha o cano e mata o processo com
+   *      SIGPIPE) deixa a conexao do pool viva e a trava presa. A proxima
+   *      execucao esperaria para sempre por um dono que ja foi embora.
+   *   2. O banco tem `lock_timeout=5s`, que vale para espera de trava —
+   *      inclusive esta. A versao que bloqueava morria com `55P03` e uma
+   *      mensagem que nao diz nada sobre suites concorrentes.
+   *
+   * Tentando sem bloquear, o prazo e nosso e a mensagem de falha diz o que
+   * fazer.
+   */
+  const limite = Date.now() + 120_000;
+
+  for (;;) {
+    // GUARDA: sql-cru-auditado — trava consultiva de sessao, sem tabela envolvida.
+    const [linha] = await runUnscoped('test-lock', () =>
+      prisma.$queryRaw<Array<{ obtida: boolean }>>`
+        SELECT pg_try_advisory_lock(${TRAVA_DA_SUITE}::bigint) AS obtida`,
+    );
+    if (linha?.obtida) {
+      travaObtida = true;
+      return;
+    }
+
+    if (Date.now() > limite) {
+      const donos = await runUnscoped('test-lock-diag', () =>
+        prisma.$queryRaw<Array<{ pid: number; state: string }>>`
+          SELECT a.pid, a.state FROM pg_locks l
+          JOIN pg_stat_activity a ON a.pid = l.pid
+          WHERE l.locktype = 'advisory' AND l.granted`,
+      );
+      const comando =
+        'docker exec vanpro-postgres psql -U postgres -d vanpro_test -c ' +
+        `"select pg_terminate_backend(pid) from pg_locks l join pg_stat_activity a using (pid) where l.locktype='advisory' and l.granted"`;
+
+      throw new Error(
+        [
+          'Outra execucao da suite esta usando o banco vanpro_test ha mais de 2 minutos.',
+          `Conexoes segurando a trava: ${JSON.stringify(donos)}`,
+          'Se nenhuma suite esta rodando, a trava ficou orfa de uma execucao interrompida.',
+          `Libere com:  ${comando}`,
+        ].join('\n'),
+      );
+    }
+
+    await new Promise((ok) => setTimeout(ok, 500));
+  }
 }
 
 beforeEach(async (ctx) => {

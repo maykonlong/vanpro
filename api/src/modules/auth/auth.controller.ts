@@ -3,6 +3,21 @@ import { Router } from 'express';
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';
+
+/*
+ * Tolerancia de UMA janela para tras, nenhuma para frente.
+ *
+ * O padrao do otplib aceita so a janela corrente (30s). Quem digita o codigo
+ * faltando dois segundos para virar recebe "codigo invalido" tendo feito tudo
+ * certo — e a conclusao natural da pessoa e que o segundo fator esta quebrado,
+ * nao que ela foi lenta. Foi observado aqui: um teste falhou exatamente nessa
+ * borda, com o codigo gerado num passo e verificado no seguinte.
+ *
+ * A RFC 6238 (secao 5.2) prevê essa tolerancia para atraso de transmissao e
+ * desvio de relogio. Para tras apenas: aceitar o codigo do futuro nao ajuda
+ * ninguem e so alarga a janela de quem interceptou um.
+ */
+authenticator.options = { window: [1, 0] };
 import QRCode from 'qrcode';
 import {
   generateRegistrationOptions,
@@ -35,6 +50,7 @@ import {
   vinculosAtivos,
   switchCompany,
   papelNaEmpresa,
+  type MetodoDeAutenticacao,
 } from './session.service';
 import {
   hashPassword,
@@ -185,6 +201,7 @@ async function completeLogin(
   res: Parameters<typeof issueSession>[1],
   user: PublicUser & { tenantId: string | null },
   via: string,
+  metodo: MetodoDeAutenticacao = 'senha',
 ) {
   await prisma.user.update({
     where: { id: user.id },
@@ -194,7 +211,7 @@ async function completeLogin(
   const vinculos = await vinculosAtivos(user.id);
 
   if (user.role === 'SUPER_ADMIN' && vinculos.length === 0) {
-    await issueSession(req, res, { id: user.id, role: user.role, companyId: null });
+    await issueSession(req, res, { id: user.id, role: user.role, companyId: null }, metodo);
     await audit({
       action: 'AUTH_LOGIN_SUCCESS',
       description: `Login de plataforma via ${via}.`,
@@ -299,7 +316,7 @@ router.post('/login', authLimiter, validate({ body: loginSchema }), async (req, 
     return res.json({ requires2FA: true, challengeId });
   }
 
-  return res.json(await completeLogin(req, res, user, 'senha'));
+  return res.json(await completeLogin(req, res, user, 'senha', 'senha'));
 });
 
 // ---------------------------------------------------------------------------
@@ -334,10 +351,10 @@ router.post('/2fa/login', authLimiter, validate({ body: twoFactorLoginSchema }),
       data: { twoFactorRecoveryCodes: serializeRecoveryHashes(remaining) },
     });
     logger.info({ userId: user.id, restantes: remaining.length }, 'código de recuperação 2FA consumido');
-    return res.json(await completeLogin(req, res, user, 'código de recuperação'));
+    return res.json(await completeLogin(req, res, user, 'código de recuperação', 'senha+totp'));
   }
 
-  return res.json(await completeLogin(req, res, user, '2FA'));
+  return res.json(await completeLogin(req, res, user, '2FA', 'senha+totp'));
 });
 
 // ---------------------------------------------------------------------------
@@ -983,7 +1000,24 @@ router.post(
       data: { counter: BigInt(verification.authenticationInfo.newCounter) },
     });
 
-    res.json(await completeLogin(req, res, stored.user, 'passkey'));
+    /*
+     * `passkey+uv` SO quando o autenticador de fato verificou a pessoa.
+     *
+     * `userVerified` vem da flag UV do proprio autenticador: biometria ou PIN
+     * no dispositivo. Sem ela, a passkey prova posse e mais nada — um fator.
+     * Carimbar tudo como dois fatores era o buraco: um toque na chave abria o
+     * console da plataforma, que existe justamente para exigir dois.
+     */
+    const verificouUsuario = verification.authenticationInfo.userVerified === true;
+    res.json(
+      await completeLogin(
+        req,
+        res,
+        stored.user,
+        verificouUsuario ? 'passkey com verificação' : 'passkey',
+        verificouUsuario ? 'passkey+uv' : 'passkey',
+      ),
+    );
   },
 );
 

@@ -6,7 +6,7 @@ import { Errors } from '../../lib/errors';
 import { runUnscoped } from '../../lib/request-context';
 import { validate, pagination, paginate, skipTake, uuidParam, text } from '../../http/validate';
 import { requireSuperAdmin } from '../../http/middlewares/authenticate';
-import { revokeAllUserSessions } from '../auth/session.service';
+import { revokeAllUserSessions, temSegundoFator } from '../auth/session.service';
 
 /**
  * Console da plataforma.
@@ -39,7 +39,8 @@ const router = Router();
 router.use(requireSuperAdmin);
 
 /**
- * Segundo fator OBRIGATORIO neste console — e so neste.
+ * Segundo fator OBRIGATORIO neste console — e conferido na SESSAO, nao no
+ * cadastro do usuario.
  *
  * Aqui uma pessoa suspende qualquer frota cliente e enxerga o tamanho de todas
  * elas. Senha sozinha protegendo isso significa que uma credencial vazada de um
@@ -47,29 +48,27 @@ router.use(requireSuperAdmin);
  * opcional por desenho (mae que abre o app uma vez por mes nao vai configurar
  * TOTP).
  *
+ * A primeira versao deste guarda conferia `isTwoFactorEnabled` — a bandeira do
+ * CADASTRO. Ela continuava verdadeira para quem entrasse por passkey, que
+ * completa o login sem TOTP nenhum e, com `requireUserVerification: false`,
+ * prova apenas POSSE da chave. Um toque abria o console. "O usuario tem segundo
+ * fator" e "esta sessao passou pelo segundo fator" sao afirmacoes diferentes, e
+ * so a segunda autoriza.
+ *
  * A exigencia fica na PORTA DO CONSOLE, e nao no login. Exigir no login
  * trancaria o administrador para fora do sistema inteiro no dia em que
  * perdesse o telefone — e o remedio (redefinir 2FA) mora dentro do sistema.
- * Assim ele entra, le a recusa dizendo exatamente o que fazer, ativa o segundo
- * fator em Configuracoes e volta.
  */
-router.use(async (req, _res, next) => {
-  try {
-    const user = await runUnscoped('platform-2fa', () =>
-      prisma.user.findUnique({
-        where: { id: req.auth!.userId },
-        select: { isTwoFactorEnabled: true },
-      }),
+router.use((req, _res, next) => {
+  if (!temSegundoFator(req.auth!.authMethod)) {
+    return next(
+      Errors.forbidden(
+        'O console da plataforma exige uma sessão com segundo fator. Entre com senha e código de verificação, ' +
+          'ou com uma passkey que peça biometria/PIN.',
+      ),
     );
-    if (!user?.isTwoFactorEnabled) {
-      throw Errors.forbidden(
-        'O console da plataforma exige segundo fator. Ative a verificação em duas etapas em Configurações e tente de novo.',
-      );
-    }
-    next();
-  } catch (err) {
-    next(err);
   }
+  next();
 });
 
 const ESTADOS = ['TRIAL', 'ACTIVE', 'PAST_DUE', 'SUSPENDED', 'CANCELED'] as const;

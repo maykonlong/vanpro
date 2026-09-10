@@ -82,19 +82,41 @@ function keyGenerator(req: Request): string {
   return `ip:${req.ip ?? 'unknown'}`;
 }
 
+/**
+ * Quanto tempo o limitador para de tentar o Redis depois de uma falha.
+ *
+ * Sem isso o `fail-open` funciona, mas cobra caro: durante um incidente do
+ * cache, CADA requisicao paga o `commandTimeout` inteiro antes de ser liberada.
+ * Com o teto de 2s por comando e o cache degradado, isso e 2 segundos somados a
+ * toda tela do produto enquanto o incidente durar — degradacao graciosa que o
+ * usuario sente como sistema quebrado.
+ *
+ * Depois de uma falha, o limitador usa a contagem em memoria por 30 segundos e
+ * so entao volta a tentar. Frouxo entre replicas por meio minuto e infinitamente
+ * melhor que meio minuto de latencia somada em tudo.
+ */
+const RESFRIAMENTO_MS = 30_000;
+
 function build(prefix: string, opts: Partial<Options>): RequestHandler {
   const obterStore = lazyStore(prefix);
   const emMemoria = criarLimiter(prefix, opts, undefined);
   let comRedis: RequestHandler | null = null;
+  let evitarRedisAte = 0;
 
   return (req: Request, res: Response, next: NextFunction) => {
-    const store = obterStore();
+    const agora = Date.now();
+    const store = agora >= evitarRedisAte ? obterStore() : undefined;
     if (store && !comRedis) comRedis = criarLimiter(prefix, opts, store);
-    const limiter = comRedis ?? emMemoria;
+    const limiter = store && comRedis ? comRedis : emMemoria;
 
     limiter(req, res, (err?: unknown) => {
       if (!err) return next();
-      logger.warn({ err, prefix, path: req.path }, 'store do rate limit falhou — liberando a requisição');
+      // A proxima requisicao nao repete a espera: o cache ja se mostrou fora.
+      evitarRedisAte = Date.now() + RESFRIAMENTO_MS;
+      logger.warn(
+        { err, prefix, path: req.path, resfriamentoMs: RESFRIAMENTO_MS },
+        'store do rate limit falhou — liberando a requisição e contando em memória por 30s',
+      );
       next();
     });
   };

@@ -312,16 +312,6 @@ router.post(
     throw Errors.featureDisabled(
       `Publicação em ${existing.channel} — não há canal de envio configurado neste ambiente`,
     );
-
-    const post = await prisma.aIPost.update({ where: { id }, data: { status: 'PUBLISHED' } });
-
-    await audit({
-      action: 'AI_POST_PUBLISHED',
-      description: `Publicação ${id} veiculada no canal ${post.channel}.`,
-      ipAddress: req.ip ?? null,
-    });
-
-    res.json(serializePost(post));
   },
 );
 

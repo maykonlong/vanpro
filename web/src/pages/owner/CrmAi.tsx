@@ -5,7 +5,6 @@ import { Cake, MessageSquare, Megaphone } from 'lucide-react';
 import { api } from '../../lib/api';
 import { formatDate, formatDateTime, label } from '../../lib/format';
 import { useAction, useResource } from '../../hooks/useResource';
-import { useFeatures } from '../../context/FeaturesContext';
 import { useRealtime } from '../../hooks/useRealtime';
 import { FeatureDisabledNotice } from '../../components/PermissionNotice';
 import {
@@ -268,7 +267,6 @@ function Campanhas() {
   // botão nenhum na tela: o rascunho ficava listado sem que ninguém pudesse
   // fazer nada com ele. Uma tela que só renderiza não é uma tela.
   const moderar = useAction();
-  const { enabled, loading: flagsCarregando } = useFeatures();
 
   const onModerar = async (post: AiPost, acao: 'approve' | 'reject' | 'publish') => {
     const done = await moderar.run(async () => {
@@ -279,14 +277,20 @@ function Campanhas() {
   };
 
   /**
-   * O canal precisa de credencial para a publicação SAIR de fato.
+   * NENHUM canal publica nesta versão — e o botão precisa dizer isso ANTES do
+   * clique.
    *
-   * WhatsApp é o único canal cuja configuração a sonda `/health/features`
-   * expõe. Nos demais o botão continua disponível e a API decide — o que não
-   * pode acontecer é marcar como publicado algo que nunca foi enviado.
+   * A versão anterior só barrava WHATSAPP (o único canal cuja configuração a
+   * sonda `/health/features` expõe) e deixava "Publicar agora" ativo para
+   * e-mail e Instagram, que a API recusa **sempre**: não há provedor, e o
+   * cadastro não tem sequer campo de telefone para o WhatsApp. O resultado era
+   * o clique que só sabe falhar — a mesma classe de defeito do botão de IA que
+   * foi removido daqui.
+   *
+   * Quando um provedor entrar, esta função volta a consultar a sonda: é ela que
+   * sabe o que tem credencial neste ambiente.
    */
-  const canalPronto = (canal: AiPost['channel']) =>
-    canal === 'WHATSAPP' ? !flagsCarregando && enabled('whatsapp') : true;
+  const canalPronto = (_canal: AiPost['channel']) => false;
 
   const onCreate = async (event: FormEvent) => {
     event.preventDefault();
@@ -487,8 +491,9 @@ function Campanhas() {
                       </Button>
                     ) : (
                       <span className="text-xs text-warn-400">
-                        {label.channel(p.channel)} sem credencial neste ambiente — a publicação seria
-                        recusada, então o botão não é oferecido.
+                        Esta versão não envia por {label.channel(p.channel)}: não há provedor
+                        configurado. A publicação fica aprovada e o envio é feito pelo canal de
+                        sempre — o botão não é oferecido porque só saberia falhar.
                       </span>
                     )
                   ) : null}

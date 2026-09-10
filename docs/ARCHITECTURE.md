@@ -77,12 +77,36 @@ Cada módulo exporta um `Router` como `default` de
 
 | Papel | Alcance |
 |---|---|
-| `SUPER_ADMIN` | plataforma; único que atravessa empresas, e só via `requireSuperAdmin` |
+| `SUPER_ADMIN` | plataforma; **não atravessa empresas** — ver a nota abaixo |
 | `OWNER` | dono da frota; tudo dentro da própria empresa |
 | `MANAGER` | delegado; poderes vêm das flags `canManageFinance/HR/Routes` |
 | `DRIVER` | operação da própria rota; vê os próprios ganhos, nunca o faturamento |
 | `ASSISTANT` | monitor: check-in de aluno, leitura de rota |
 | `PARENT` | só os próprios filhos, e só leitura + LGPD |
+
+**Sobre o `SUPER_ADMIN`, com precisão.** Uma versão anterior desta tabela dizia
+que ele "atravessa empresas, e só via `requireSuperAdmin`". As duas metades
+estavam erradas, e a segunda escondia a primeira:
+
+- `requireRole` **deixa** o `SUPER_ADMIN` passar por qualquer checagem de papel
+  (`authenticate.ts`). Isso é passagem para o handler, não acesso a dado.
+- O que protege o dado é o guard de tenant do Prisma, e ele **falha fechado**:
+  a sessão de plataforma nasce sem empresa ativa, então toda consulta escopada
+  por empresa é recusada na camada de dados. Exercitado em
+  `tests/integration/security.test.ts` — e o que se verifica lá é justamente que
+  a recusa não vaza nada sobre o motivo.
+- O `SUPER_ADMIN` **com vínculo** numa frota (suporte operando dentro de um
+  cliente) age como membro daquela frota, com a empresa ativa na sessão. É o
+  mesmo caminho de qualquer outra pessoa.
+- O console da plataforma (`/platform`) é a única superfície que atravessa
+  empresas de propósito. Ele exige `requireSuperAdmin` **e** uma sessão com
+  segundo fator, audita a leitura e audita a escrita na trilha da empresa
+  afetada.
+
+A diferença entre "não pode passar" e "passa e não encontra nada" importa: a
+primeira é uma promessa de código que alguém pode remover numa refatoração; a
+segunda é uma propriedade da camada de dados, que continua valendo mesmo quando
+o guard de papel é esquecido.
 
 ## Testes
 
