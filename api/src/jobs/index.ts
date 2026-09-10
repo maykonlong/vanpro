@@ -50,6 +50,104 @@ async function marcarTrialsVencidos(): Promise<void> {
   }
 }
 
+/**
+ * Mensalidade do mes, para todo aluno ativo de toda frota.
+ *
+ * Antes disto, alguem tinha de lancar aluno por aluno, mes a mes. Numa frota de
+ * quarenta criancas isso e quarenta lancamentos manuais em fevereiro, quarenta
+ * em marco — e o que acontece de verdade e que em algum mes ninguem lanca, a
+ * cobranca nao sai, e o dono descobre quando falta dinheiro. O produto prometia
+ * controlar mensalidade e entregava uma planilha com botao.
+ *
+ * IDEMPOTENTE POR CONSTRUCAO, e nao por consulta. A unica
+ * `(studentId, competencia)` faz a segunda tentativa falhar no banco em vez de
+ * duplicar: "consultar antes de inserir" perde a corrida entre duas execucoes
+ * simultaneas — e o efeito de perder essa corrida e o responsavel recebendo dois
+ * boletos do mesmo mes.
+ *
+ * Roda TODO DIA de proposito, e nao so no dia 1. Aluno matriculado no meio do
+ * mes precisa da mensalidade dele; e uma execucao que falhou ontem se corrige
+ * hoje sozinha, em vez de esperar trinta dias.
+ */
+async function gerarMensalidadesDoMes(): Promise<void> {
+  const agora = new Date();
+  const competencia = `${agora.getUTCFullYear()}-${String(agora.getUTCMonth() + 1).padStart(2, '0')}`;
+
+  const empresas = await runUnscoped('cron-mensalidades', () =>
+    prisma.company.findMany({
+      // `CANCELED` fica de fora: relacao encerrada nao gera cobranca nova.
+      // As demais entram, inclusive `SUSPENDED` — a suspensao e entre o VanPro e
+      // o dono da frota; a mensalidade e entre a frota e o responsavel, e deixar
+      // de gerar seria fazer a frota perder receita por causa da conta do
+      // fornecedor dela.
+      where: { tenantStatus: { not: 'CANCELED' } },
+      select: { id: true, name: true, billingDay: true },
+    }),
+  );
+
+  let criadas = 0;
+  let jaExistiam = 0;
+
+  for (const empresa of empresas) {
+    const alunos = await runUnscoped('cron-mensalidades', () =>
+      prisma.student.findMany({
+        where: { companyId: empresa.id, deletedAt: null, monthlyFeeCents: { gt: 0 } },
+        select: { id: true, monthlyFeeCents: true },
+      }),
+    );
+
+    for (const aluno of alunos) {
+      try {
+        await runUnscoped('cron-mensalidades', () =>
+          prisma.financialTransaction.create({
+            data: {
+              companyId: empresa.id,
+              studentId: aluno.id,
+              amountCents: aluno.monthlyFeeCents,
+              dueDate: vencimentoDoMes(agora, empresa.billingDay),
+              competencia,
+              paid: false,
+            },
+          }),
+        );
+        criadas += 1;
+      } catch (err) {
+        // Colisao na unica: a mensalidade deste aluno neste mes ja existe. E o
+        // caminho NORMAL a partir da segunda execucao do dia — nao e erro, e a
+        // idempotencia funcionando.
+        if ((err as { code?: string }).code === 'P2002') {
+          jaExistiam += 1;
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  if (criadas > 0) {
+    logger.info({ competencia, criadas, jaExistiam }, 'mensalidades do mês geradas');
+    await audit({
+      action: 'INVOICE_CREATED',
+      description: `Geração automática da competência ${competencia}: ${criadas} mensalidade(s) criada(s).`,
+      companyId: null,
+    });
+  }
+}
+
+/**
+ * Data de vencimento no mes corrente.
+ *
+ * Dia 31 em fevereiro nao existe: cai no ultimo dia do mes. `new Date(ano, mes,
+ * 0)` devolve o ultimo dia do mes anterior — usado aqui para descobrir quantos
+ * dias o mes tem sem tabela de meses nem regra de ano bissexto escrita a mao.
+ */
+function vencimentoDoMes(referencia: Date, dia: number): Date {
+  const ano = referencia.getUTCFullYear();
+  const mes = referencia.getUTCMonth();
+  const ultimoDia = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(ano, mes, Math.min(dia, ultimoDia), 12, 0, 0));
+}
+
 /** Fatura vencida e nao paga vira OVERDUE. */
 async function markOverdueInvoices(): Promise<void> {
   const now = new Date();
@@ -161,6 +259,7 @@ const exclusivos = {
   overdue: umaRodadaPorVez(markOverdueInvoices),
   lgpdPurge: umaRodadaPorVez(purgeExpiredCredentials),
   lgpdIp: umaRodadaPorVez(minimizarIpsAntigos),
+  mensalidades: umaRodadaPorVez(gerarMensalidadesDoMes),
 } as const;
 
 export function startJobs(): void {
@@ -170,6 +269,9 @@ export function startJobs(): void {
   // Semanal, e nao diario: a janela e de 12 meses, entao rodar todo dia so
   // varre a mesma tabela sem nada para fazer.
   tasks.push(cron.schedule('47 4 * * 0', guarded('lgpd-ip', exclusivos.lgpdIp), { timezone: TZ }));
+  // 5h27: depois da virada do dia e antes de qualquer pessoa abrir o sistema.
+  // Todo dia, nao so no dia 1 — ver o comentario da funcao.
+  tasks.push(cron.schedule('27 5 * * *', guarded('mensalidades', exclusivos.mensalidades), { timezone: TZ }));
   logger.info({ jobs: tasks.length }, 'rotinas agendadas ativas');
 }
 
@@ -184,6 +286,7 @@ export const __jobs = {
   markOverdueInvoices,
   purgeExpiredCredentials,
   minimizarIpsAntigos,
+  gerarMensalidadesDoMes,
 };
 
 /** As mesmas rotinas com a trava de reentrancia — o que o agendador chama. */

@@ -72,11 +72,24 @@ test.describe('Equipe', () => {
       metodo: 'POST',
     });
 
-    // O ambiente não tem provedor de e-mail: a tela precisa DIZER que o convite
-    // não foi enviado, em vez de deixar a pessoa esperando por um e-mail que
-    // nunca vai chegar.
+    /*
+     * Não há provedor de e-mail, e a tela não pode fingir que há.
+     *
+     * Antes, o link só voltava em ambiente de desenvolvimento — em produção o
+     * convite virava uma linha no banco que expirava em 72h sem servir para
+     * nada: o dono cadastrava a secretaria, via "convite criado", e ela nunca
+     * recebia. Agora o link volta para quem convidou, num campo copiável, com
+     * a instrução no lugar da promessa.
+     */
     await expect(page.getByRole('status').first()).toContainText(email);
-    await expect(page.getByText(/o convite NÃO foi enviado/i)).toBeVisible();
+    await expect(page.getByText(/Esta versão não envia e-mail/i)).toBeVisible();
+
+    const campoLink = page.getByLabel('Link do convite');
+    await expect(campoLink).toBeVisible();
+    // O link precisa ser o de verdade — um campo bonito com valor vazio seria
+    // exatamente o tipo de "quase funciona" que este projeto persegue.
+    await expect(campoLink).toHaveValue(/\/aceitar-convite\?token=.{20,}/);
+    await expect(page.getByRole('button', { name: 'Copiar link' })).toBeVisible();
 
     const cartao = page.locator('li').filter({ hasText: email }).first();
     await expect(cartao).toBeVisible();

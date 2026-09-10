@@ -52,6 +52,14 @@ model Company {
   latitude  Float?
   longitude Float?
 
+  /// Dia do mes em que a mensalidade dos alunos vence.
+  ///
+  /// Da FROTA, e nao de cada aluno: uma van escolar cobra todo mundo no mesmo
+  /// dia, e um campo por aluno seria trabalho de cadastro que ninguem faz e que
+  /// acabaria com todos no valor padrao de qualquer jeito.
+  ///
+  /// Dia maior que o ultimo do mes cai no ultimo dia (31 em fevereiro vira 28).
+  billingDay   Int       @default(10)
   tenantStatus String    @default("TRIAL") // TRIAL, ACTIVE, PAST_DUE, SUSPENDED, CANCELED
   trialEndsAt  DateTime?
   suspendedAt  DateTime?
@@ -382,12 +390,24 @@ model FinancialTransaction {
   paidAt      DateTime?
   dueDate     DateTime
   externalId  String?   @unique
+  /// Mes de referencia da mensalidade, no formato `AAAA-MM`.
+  ///
+  /// Existe para a geracao mensal ser idempotente POR CONSTRUCAO: com a unica
+  /// `(studentId, competencia)`, rodar a rotina dez vezes no mesmo mes produz o
+  /// mesmo resultado de roda-la uma. Sem isso, a defesa seria "consultar antes
+  /// de inserir" — que perde a corrida entre duas execucoes simultaneas e
+  /// duplica a cobranca do responsavel.
+  ///
+  /// Nulo no lancamento manual: quem lanca a mao pode estar cobrando taxa
+  /// avulsa, segunda via ou acerto — nao ha mes de referencia a impor.
+  competencia String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   student Student @relation(fields: [studentId], references: [id])
 
+  @@unique([studentId, competencia])
   @@index([companyId, paid, dueDate])
   @@index([studentId])
 }

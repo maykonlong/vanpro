@@ -1,6 +1,8 @@
+import { readFile } from 'node:fs/promises';
 import { expect, type Page } from '@playwright/test';
 
 import {
+  apiGet,
   testeComo,
   centavos,
   clicarEsperando,
@@ -276,5 +278,77 @@ test.describe('Financeiro', () => {
       metodo: 'GET',
     });
     await expect(page.getByText(/Página 1 de/)).toBeVisible();
+  });
+});
+
+test.describe('Folha e exportação', () => {
+  test('o resultado avisa quando há diária apurada e não lançada', async ({ page }) => {
+    /*
+     * O lucro do DRE é de caixa e só conta despesa lançada — o que reconcilia
+     * com o extrato e produzia um número sistematicamente otimista, porque a
+     * diária do motorista só entrava se alguém lembrasse de digitar.
+     *
+     * O seed tem ponto batido e folha lançada; qual dos dois é maior depende do
+     * mês. Por isso o teste não fixa o valor: ele confere que os dois números
+     * existem, que a conta fecha, e que o aviso aparece exatamente quando falta
+     * lançamento — nunca "às vezes".
+     */
+    await abrirFinanceiro(page);
+    await aba(page, 'Resultado');
+
+    const dre = await apiGet<{
+      lucroLiquido: { cents: number };
+      lucroConsiderandoFolhaApurada: { cents: number };
+      folha: {
+        apuradaPeloPonto: { cents: number };
+        lancadaComoDespesa: { cents: number };
+        naoLancada: { cents: number };
+        diasApurados: number;
+      };
+    }>(page, '/financial/dre');
+
+    // A conta que sustenta o aviso.
+    expect(dre.folha.naoLancada.cents).toBe(
+      Math.max(0, dre.folha.apuradaPeloPonto.cents - dre.folha.lancadaComoDespesa.cents),
+    );
+    expect(dre.lucroConsiderandoFolhaApurada.cents).toBe(
+      dre.lucroLiquido.cents - dre.folha.naoLancada.cents,
+    );
+
+    const aviso = page.getByText(/Faltam .* de diárias no resultado/);
+    if (dre.folha.naoLancada.cents > 0) {
+      await expect(aviso).toBeVisible();
+      // Quem deve, e quanto: sem isso o aviso é um número sem endereço.
+      await expect(page.getByTestId('dre-folha-motoristas')).toBeVisible();
+    } else {
+      await expect(aviso).toHaveCount(0);
+    }
+  });
+
+  test('exportar para planilha baixa um CSV com o período pedido', async ({ page }) => {
+    await abrirFinanceiro(page);
+    await aba(page, 'Resultado');
+
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Exportar para planilha' }).click();
+    const arquivo = await download;
+
+    expect(arquivo.suggestedFilename()).toMatch(/^vanpro-financeiro-\d{4}-\d{2}-\d{2}-a-\d{4}-\d{2}-\d{2}\.csv$/);
+
+    const caminho = await arquivo.path();
+    const conteudo = await readFile(caminho, 'utf8');
+
+    // BOM primeiro: sem ele o Excel em português abre "José" como "JosÃ©".
+    expect(conteudo.charCodeAt(0)).toBe(0xfeff);
+    const linhas = conteudo.slice(1).split('\r\n');
+    expect(linhas[0]).toBe('data;tipo;categoria;descricao;competencia;valor');
+    expect(linhas.length, 'o período do seed tem lançamentos').toBeGreaterThan(1);
+
+    // Vírgula decimal e despesa negativa: aberto na planilha, a coluna soma
+    // sozinha e dá o resultado do período.
+    for (const linha of linhas.slice(1).filter(Boolean)) {
+      expect(linha.split(';').pop()).toMatch(/^-?\d+,\d{2}$/);
+    }
+    expect(linhas.some((l) => l.includes(';DESPESA;'))).toBe(true);
   });
 });

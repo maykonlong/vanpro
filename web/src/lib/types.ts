@@ -157,6 +157,26 @@ export interface Dre {
   despesaTotal: Money;
   lucroLiquido: Money;
   margemPercentual: number;
+  /**
+   * Folha apurada pelo ponto contra a folha lançada como despesa.
+   *
+   * `naoLancada` acima de zero significa que `lucroLiquido` está OTIMISTA nesse
+   * valor: o trabalho aconteceu, a diária é devida, e ninguém lançou a despesa.
+   */
+  folha: {
+    apuradaPeloPonto: Money;
+    lancadaComoDespesa: Money;
+    naoLancada: Money;
+    diasApurados: number;
+    porMotorista: Array<{
+      driverId: string;
+      nome: string;
+      dias: number;
+      diaria: Money;
+      total: Money;
+    }>;
+  };
+  lucroConsiderandoFolhaApurada: Money;
   periodo: { from: string; to: string };
 }
 

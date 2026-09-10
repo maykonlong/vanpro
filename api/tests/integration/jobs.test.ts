@@ -318,3 +318,131 @@ describe('minimizacao de IP na trilha', () => {
     expect(await ipDe(semIp.id)).toBeNull();
   });
 });
+
+describe('mensalidade do mes', () => {
+  /*
+   * O produto prometia controlar mensalidade e entregava uma planilha com
+   * botao: alguem tinha de lancar aluno por aluno, mes a mes. Numa frota de
+   * quarenta criancas sao quarenta lancamentos em fevereiro e quarenta em
+   * marco — e o que acontece de verdade e que em algum mes ninguem lanca, a
+   * cobranca nao sai, e o dono descobre quando falta dinheiro.
+   */
+  async function criarAluno(companyId: string, nome: string, mensalidadeCents: number) {
+    return runUnscoped('fixture', () =>
+      prisma.student.create({
+        data: {
+          companyId,
+          name: nome,
+          school: 'Escola Teste',
+          grade: '1º Ano',
+          shift: 'MORNING',
+          monthlyFeeCents: mensalidadeCents,
+        },
+      }),
+    );
+  }
+
+  async function mensalidadesDe(studentId: string) {
+    return runUnscoped('check', () =>
+      prisma.financialTransaction.findMany({
+        where: { studentId },
+        select: { amountCents: true, competencia: true, dueDate: true, paid: true },
+      }),
+    );
+  }
+
+  it('gera uma mensalidade por aluno ativo, com o valor do cadastro', async () => {
+    const ana = await criarAluno(alfa.id, 'Ana Mensalista', 48_050);
+    const bruno = await criarAluno(beta.id, 'Bruno Mensalista', 39_900);
+
+    await __jobs.gerarMensalidadesDoMes();
+
+    const daAna = await mensalidadesDe(ana.id);
+    expect(daAna).toHaveLength(1);
+    expect(daAna[0]!.amountCents).toBe(48_050);
+    expect(daAna[0]!.paid).toBe(false);
+
+    // Cada frota recebe a sua: a rotina cruza empresas de proposito, e por isso
+    // e a que mais precisa provar que nao mistura.
+    const doBruno = await mensalidadesDe(bruno.id);
+    expect(doBruno).toHaveLength(1);
+    expect(doBruno[0]!.amountCents).toBe(39_900);
+  });
+
+  it('rodar dez vezes no mesmo mes produz o mesmo resultado de rodar uma', async () => {
+    const ana = await criarAluno(alfa.id, 'Ana Mensalista', 48_050);
+
+    for (let i = 0; i < 10; i += 1) await __jobs.gerarMensalidadesDoMes();
+
+    // A defesa e a unica `(studentId, competencia)`, e nao uma consulta antes de
+    // inserir — que perderia a corrida entre duas execucoes simultaneas. O
+    // efeito de perder essa corrida seria o responsavel recebendo dois boletos
+    // do mesmo mes.
+    expect(await mensalidadesDe(ana.id)).toHaveLength(1);
+  });
+
+  it('duas execucoes SIMULTANEAS nao duplicam a cobranca', async () => {
+    const ana = await criarAluno(alfa.id, 'Ana Mensalista', 48_050);
+
+    await Promise.all([
+      __jobs.gerarMensalidadesDoMes(),
+      __jobs.gerarMensalidadesDoMes(),
+      __jobs.gerarMensalidadesDoMes(),
+    ]);
+
+    expect(await mensalidadesDe(ana.id)).toHaveLength(1);
+  });
+
+  it('aluno arquivado e aluno sem mensalidade ficam de fora', async () => {
+    const arquivado = await criarAluno(alfa.id, 'Aluno Que Saiu', 40_000);
+    await runUnscoped('fixture', () =>
+      prisma.student.update({ where: { id: arquivado.id }, data: { deletedAt: new Date() } }),
+    );
+    const bolsista = await criarAluno(alfa.id, 'Aluno Bolsista', 0);
+
+    await __jobs.gerarMensalidadesDoMes();
+
+    expect(await mensalidadesDe(arquivado.id)).toHaveLength(0);
+    // Mensalidade zero e bolsa, nao esquecimento: cobrar R$ 0,00 enche a tela
+    // do responsavel com boleto que nao existe.
+    expect(await mensalidadesDe(bolsista.id)).toHaveLength(0);
+  });
+
+  it('empresa cancelada nao gera cobranca nova; suspensa gera', async () => {
+    const cancelada = await criarEmpresa('Frota Encerrada', '99888777000166', {
+      tenantStatus: 'CANCELED',
+    });
+    const alunoDaCancelada = await criarAluno(cancelada.id, 'Aluno Da Encerrada', 40_000);
+
+    await runUnscoped('fixture', () =>
+      prisma.company.update({ where: { id: alfa.id }, data: { tenantStatus: 'SUSPENDED' } }),
+    );
+    const alunoDaSuspensa = await criarAluno(alfa.id, 'Aluno Da Suspensa', 40_000);
+
+    await __jobs.gerarMensalidadesDoMes();
+
+    expect(await mensalidadesDe(alunoDaCancelada.id)).toHaveLength(0);
+    // A suspensão é entre o VanPro e o dono da frota. A mensalidade é entre a
+    // frota e o responsável — deixar de gerar faria a frota perder receita por
+    // causa da conta do fornecedor dela.
+    expect(await mensalidadesDe(alunoDaSuspensa.id)).toHaveLength(1);
+  });
+
+  it('o vencimento usa o dia da frota, e o dia 31 cai no ultimo dia do mes', async () => {
+    await runUnscoped('fixture', () =>
+      prisma.company.update({ where: { id: alfa.id }, data: { billingDay: 31 } }),
+    );
+    const ana = await criarAluno(alfa.id, 'Ana Mensalista', 48_050);
+
+    await __jobs.gerarMensalidadesDoMes();
+
+    const [cobranca] = await mensalidadesDe(ana.id);
+    const agora = new Date();
+    const ultimoDia = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth() + 1, 0)).getUTCDate();
+
+    expect(cobranca!.dueDate.getUTCDate()).toBe(Math.min(31, ultimoDia));
+    expect(cobranca!.competencia).toBe(
+      `${agora.getUTCFullYear()}-${String(agora.getUTCMonth() + 1).padStart(2, '0')}`,
+    );
+  });
+});

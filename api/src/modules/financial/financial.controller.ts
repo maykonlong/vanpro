@@ -68,6 +68,119 @@ function percentual(lucro: number, receita: number): number {
 }
 
 // ---------------------------------------------------------------------------
+// CSV
+// ---------------------------------------------------------------------------
+
+function dataISO(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Valor em reais com virgula decimal, como a planilha brasileira espera.
+ *
+ * Ponto decimal faz o Excel em pt-BR ler "480.50" como quatrocentos e oitenta
+ * mil e quinhentos — e a diferenca so aparece na hora de fechar o mes.
+ */
+function reais(cents: number): string {
+  return (cents / 100).toFixed(2).replace('.', ',');
+}
+
+/**
+ * Escapa o campo do CSV.
+ *
+ * Duas coisas diferentes acontecem aqui, e a segunda e de seguranca:
+ *
+ *   - aspas e separador dentro do texto quebram a coluna; a saida e o padrao
+ *     (RFC 4180): envolver em aspas e dobrar as internas;
+ *   - campo que comeca com `=`, `+`, `-` ou `@` e interpretado como FORMULA
+ *     pelo Excel. Uma despesa descrita como `=HYPERLINK(...)` viraria codigo
+ *     executavel na maquina do contador — e a descricao vem de quem digita.
+ *     O apostrofo na frente desarma a formula e nao aparece na celula.
+ *
+ * A EXCECAO importa tanto quanto a regra: valor monetario negativo comeca com
+ * `-` e seria "protegido" em `'-320,75`, que a planilha le como TEXTO. A
+ * coluna deixaria de somar, e a defesa teria quebrado exatamente o recurso que
+ * ela serve. Numero no nosso proprio formato passa direto.
+ */
+const NUMERO_NOSSO = /^-?\d+,\d{2}$/;
+
+/**
+ * Exportado para o teste. A regra de quais entradas sao desarmadas — e quais
+ * NAO podem ser — e a parte que precisa de prova; exercita-la pela rota exigiria
+ * cadastrar um aluno com nome hostil so para ler uma celula.
+ */
+export function campoCsv(valor: string): string {
+  const perigoso = /^[=+\-@\t\r]/.test(valor) && !NUMERO_NOSSO.test(valor);
+  const texto = perigoso ? `'${valor}` : valor;
+  return /[";\r\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
+
+}
+
+// ---------------------------------------------------------------------------
+// Folha apurada pelo ponto
+// ---------------------------------------------------------------------------
+
+/**
+ * Quanto de diaria o periodo gerou, segundo os cartoes de ponto FECHADOS.
+ *
+ * Cartao `COMPLETED` e o registro de que o dia foi trabalhado — e cada dia
+ * trabalhado gera uma diaria devida ao motorista. Isso e custo do periodo,
+ * exista ou nao um lancamento de despesa correspondente.
+ *
+ * So conta cartao fechado: turno em andamento pode terminar sem virar diaria
+ * (motorista que bateu entrada e foi embora), e contar um dia que ainda nao
+ * acabou seria antecipar custo que talvez nao exista.
+ *
+ * A diaria vem do cadastro ATUAL do motorista, e nao de um historico — o schema
+ * nao guarda o valor vigente na data. Consequencia honesta: reajustar a diaria
+ * muda a folha apurada de meses passados. Enquanto nao houver historico de
+ * remuneracao, o numero e uma estimativa do custo, nao um recibo — e por isso
+ * ele NAO entra sozinho no lucro.
+ */
+async function apurarFolha(inicio: Date, fim: Date) {
+  const porMotoristaBruto = await prisma.timecard.groupBy({
+    by: ['driverId'],
+    _count: { _all: true },
+    where: { status: 'COMPLETED', date: { gte: inicio, lte: fim } },
+  });
+
+  if (porMotoristaBruto.length === 0) {
+    return { totalCents: 0, dias: 0, porMotorista: [] as Array<{ driverId: string; nome: string; dias: number; dailyRateCents: number; totalCents: number }> };
+  }
+
+  const motoristas = await prisma.driver.findMany({
+    where: { id: { in: porMotoristaBruto.map((m) => m.driverId) } },
+    select: { id: true, name: true, dailyRateCents: true },
+  });
+  const cadastro = new Map(motoristas.map((m) => [m.id, m]));
+
+  const porMotorista = porMotoristaBruto
+    .map((m) => {
+      const dados = cadastro.get(m.driverId);
+      // Motorista removido depois do cartao: o dia trabalhado continua tendo
+      // acontecido, mas nao ha diaria para multiplicar. Some da lista em vez de
+      // virar zero silencioso no meio dos outros.
+      if (!dados) return null;
+      const dias = m._count._all;
+      return {
+        driverId: m.driverId,
+        nome: dados.name,
+        dias,
+        dailyRateCents: dados.dailyRateCents,
+        totalCents: dias * dados.dailyRateCents,
+      };
+    })
+    .filter((m): m is NonNullable<typeof m> => m !== null)
+    .sort((a, b) => b.totalCents - a.totalCents);
+
+  return {
+    totalCents: porMotorista.reduce((acc, m) => acc + m.totalCents, 0),
+    dias: porMotorista.reduce((acc, m) => acc + m.dias, 0),
+    porMotorista,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // DRE
 // ---------------------------------------------------------------------------
 
@@ -85,7 +198,7 @@ router.get(
     const { from, to } = req.valid.query as z.infer<typeof periodQuery>;
     const { inicio, fim } = resolvePeriodo(from, to);
 
-    const [mensalidades, fretamentos, porCategoria] = await Promise.all([
+    const [mensalidades, fretamentos, porCategoria, folhaApurada] = await Promise.all([
       prisma.financialTransaction.aggregate({
         _sum: { amountCents: true },
         where: { paid: true, paidAt: { gte: inicio, lte: fim } },
@@ -99,6 +212,7 @@ router.get(
         _sum: { amountCents: true },
         where: { date: { gte: inicio, lte: fim } },
       }),
+      apurarFolha(inicio, fim),
     ]);
 
     const receitaMensalidades = mensalidades._sum.amountCents ?? 0;
@@ -115,6 +229,24 @@ router.get(
     const despesaTotal = [...mapa.values()].reduce((acc, v) => acc + v, 0);
     const lucroLiquido = receitaTotal - despesaTotal;
 
+    /*
+     * A folha que o PONTO diz que existe, contra a que foi LANCADA.
+     *
+     * O DRE e regime de caixa: so conta o que foi pago e registrado. Isso e
+     * correto e reconcilia com o extrato — mas produzia um lucro sistematicamente
+     * inflado, porque a diaria do motorista so entrava se alguem lembrasse de
+     * digitar uma despesa. O trabalho aconteceu, o cartao de ponto esta fechado,
+     * e o custo simplesmente nao aparecia.
+     *
+     * A saida NAO e somar a folha apurada no lucro: isso contaria em dobro
+     * assim que o lancamento fosse feito, e trocaria um numero errado por outro.
+     * A saida e tornar a omissao impossivel de nao ver — o `lucroLiquido`
+     * continua sendo o de caixa, e ao lado dele aparece quanto de diaria o
+     * ponto apurou e ainda nao foi lancado.
+     */
+    const folhaLancada = mapa.get('PAYROLL') ?? 0;
+    const folhaNaoLancada = Math.max(0, folhaApurada.totalCents - folhaLancada);
+
     res.json({
       receitas: {
         mensalidades: money(receitaMensalidades),
@@ -128,6 +260,29 @@ router.get(
       despesaTotal: money(despesaTotal),
       lucroLiquido: money(lucroLiquido),
       margemPercentual: percentual(lucroLiquido, receitaTotal),
+
+      /*
+       * Folha: o que o ponto apurou contra o que foi lancado.
+       *
+       * `naoLancada` acima de zero significa que o lucro acima esta OTIMISTA
+       * nesse valor — trabalho feito, diaria devida, despesa nao registrada.
+       * A tela usa isto para avisar antes de alguem tomar decisao com o numero.
+       */
+      folha: {
+        apuradaPeloPonto: money(folhaApurada.totalCents),
+        lancadaComoDespesa: money(folhaLancada),
+        naoLancada: money(folhaNaoLancada),
+        diasApurados: folhaApurada.dias,
+        porMotorista: folhaApurada.porMotorista.map((m) => ({
+          driverId: m.driverId,
+          nome: m.nome,
+          dias: m.dias,
+          diaria: money(m.dailyRateCents),
+          total: money(m.totalCents),
+        })),
+      },
+      lucroConsiderandoFolhaApurada: money(lucroLiquido - folhaNaoLancada),
+
       periodo: { from: inicio, to: fim },
     });
   },
@@ -138,6 +293,94 @@ router.get(
  * que ela trouxe em fretamento. Mensalidade nao entra: o aluno nao e vinculado
  * a veiculo no schema, e ratear por chute produziria um numero que parece exato.
  */
+/**
+ * Exportacao do periodo em CSV, para o contador.
+ *
+ * O pedido mais comum de quem tem contabilidade e o mais simples de atender: o
+ * escritorio nao vai abrir a tela do sistema todo mes, e uma tela que so mostra
+ * numero obriga alguem a redigitar tudo numa planilha — que e onde o erro entra.
+ *
+ * Uma linha por LANCAMENTO, e nao o resumo do DRE: o contador precisa do
+ * detalhe para classificar, e o resumo ele mesmo faz na planilha dele.
+ */
+router.get(
+  '/export.csv',
+  requireRole(...GESTAO),
+  requirePermission('canManageFinance'),
+  validate({ query: periodQuery }),
+  async (req, res) => {
+    const { from, to } = req.valid.query as z.infer<typeof periodQuery>;
+    const { inicio, fim } = resolvePeriodo(from, to);
+
+    const [mensalidades, fretamentos, despesas] = await Promise.all([
+      prisma.financialTransaction.findMany({
+        where: { paid: true, paidAt: { gte: inicio, lte: fim } },
+        orderBy: { paidAt: 'asc' },
+        select: {
+          paidAt: true,
+          dueDate: true,
+          amountCents: true,
+          competencia: true,
+          student: { select: { name: true } },
+        },
+      }),
+      prisma.charter.findMany({
+        where: { status: 'COMPLETED', endDate: { gte: inicio, lte: fim } },
+        orderBy: { endDate: 'asc' },
+        select: { endDate: true, title: true, priceCents: true },
+      }),
+      prisma.expense.findMany({
+        where: { date: { gte: inicio, lte: fim } },
+        orderBy: { date: 'asc' },
+        select: { date: true, description: true, category: true, amountCents: true },
+      }),
+    ]);
+
+    const linhas: string[][] = [
+      ['data', 'tipo', 'categoria', 'descricao', 'competencia', 'valor'],
+    ];
+
+    for (const m of mensalidades) {
+      linhas.push([
+        dataISO(m.paidAt ?? m.dueDate),
+        'RECEITA',
+        'MENSALIDADE',
+        `Mensalidade de ${m.student.name}`,
+        m.competencia ?? '',
+        reais(m.amountCents),
+      ]);
+    }
+    for (const c of fretamentos) {
+      linhas.push([dataISO(c.endDate), 'RECEITA', 'FRETAMENTO', c.title, '', reais(c.priceCents)]);
+    }
+    for (const d of despesas) {
+      // Despesa com sinal negativo: aberto numa planilha, a coluna soma sozinha
+      // e da o resultado do periodo. Com todos positivos, quem abre precisa
+      // saber quais linhas subtrair — e alguem sempre erra.
+      linhas.push([dataISO(d.date), 'DESPESA', d.category, d.description, '', reais(-d.amountCents)]);
+    }
+
+    linhas.sort((a, b) => (a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0));
+    // O cabecalho volta para o topo depois da ordenacao por data.
+    const cabecalho = linhas.findIndex((l) => l[0] === 'data');
+    if (cabecalho > 0) linhas.unshift(...linhas.splice(cabecalho, 1));
+
+    await audit({
+      action: 'LGPD_DATA_EXPORT',
+      description: `Exportação financeira em CSV do período ${dataISO(inicio)} a ${dataISO(fim)} (${linhas.length - 1} lançamentos).`,
+      ipAddress: req.ip ?? null,
+    });
+
+    const nome = `vanpro-financeiro-${dataISO(inicio)}-a-${dataISO(fim)}.csv`;
+    // `text/csv` com BOM: sem ele o Excel em portugues abre "José" como "JosÃ©".
+    // O BOM e feio e e o que faz o arquivo abrir certo na maquina do contador.
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send('\uFEFF' + linhas.map((l) => l.map(campoCsv).join(';')).join('\r\n'));
+  },
+);
+
 router.get(
   '/dre/by-vehicle',
   requireRole(...GESTAO),

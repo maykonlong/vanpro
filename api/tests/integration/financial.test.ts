@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { prisma } from '../../src/lib/prisma';
 import { runUnscoped } from '../../src/lib/request-context';
 import { toCents } from '../../src/lib/money';
+import { campoCsv } from '../../src/modules/financial/financial.controller';
 import { criarEmpresa, criarUsuario, autenticar, type Empresa } from '../helpers/factory';
 
 /**
@@ -366,5 +367,206 @@ describe('faturas no gateway', () => {
     expect(res.status).toBe(200);
     expect(res.body.meta.total).toBe(1);
     expect(res.body.items[0]).not.toHaveProperty('companyId');
+  });
+});
+
+describe('folha apurada pelo ponto', () => {
+  /*
+   * O lucro aparecia sistematicamente maior do que e.
+   *
+   * O DRE e regime de caixa e so conta despesa lancada — o que esta certo e
+   * reconcilia com o extrato. Mas a diaria do motorista so entrava se alguem
+   * lembrasse de digitar: o trabalho aconteceu, o cartao de ponto esta fechado,
+   * o custo existe, e o numero na tela ignorava tudo isso.
+   *
+   * A saida NAO foi somar a folha no lucro — isso contaria em dobro assim que o
+   * lancamento fosse feito, trocando um numero errado por outro. Foi tornar a
+   * omissao impossivel de nao ver.
+   */
+  async function motoristaComPonto(companyId: string, nome: string, diariaCents: number, dias: number) {
+    return runUnscoped('fixture', async () => {
+      const usuario = await prisma.user.create({
+        data: {
+          name: nome,
+          email: `${nome.toLowerCase().replace(/ /g, '.')}@teste.com.br`,
+          password: 'x',
+          role: 'DRIVER',
+          tenantId: companyId,
+        },
+      });
+      const motorista = await prisma.driver.create({
+        data: { companyId, userId: usuario.id, name: nome, dailyRateCents: diariaCents },
+      });
+      const veiculo = await prisma.vehicle.create({
+        data: { companyId, plate: `PON${dias}A11`, model: 'Van', capacity: 15 },
+      });
+      for (let i = 0; i < dias; i += 1) {
+        await prisma.timecard.create({
+          data: {
+            companyId,
+            driverId: motorista.id,
+            vehicleId: veiculo.id,
+            date: new Date(Date.UTC(2026, 2, 2 + i)),
+            status: 'COMPLETED',
+          },
+        });
+      }
+      return motorista;
+    });
+  }
+
+  it('apura a diaria pelos cartoes fechados e mostra o que nao foi lancado', async () => {
+    await montarCenario(alfa.id);
+    // 18 dias x R$ 180,00 = R$ 3.240,00 de diaria devida no periodo.
+    await motoristaComPonto(alfa.id, 'Carlos Ponto', toCents(180), 18);
+
+    const dono = await autenticar('dono.alfa@teste.com.br');
+    const res = await dono.get(`/api/v1/financial/dre${PERIODO}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.folha.diasApurados).toBe(18);
+    expect(res.body.folha.apuradaPeloPonto.cents).toBe(toCents(3240));
+    // Nenhuma despesa PAYROLL foi lancada no cenario.
+    expect(res.body.folha.lancadaComoDespesa.cents).toBe(0);
+    expect(res.body.folha.naoLancada.cents).toBe(toCents(3240));
+
+    // O lucro de caixa NAO muda: ele continua reconciliando com o extrato.
+    // O segundo numero e que mostra o tamanho real do buraco.
+    const lucroCaixa = res.body.lucroLiquido.cents;
+    expect(res.body.lucroConsiderandoFolhaApurada.cents).toBe(lucroCaixa - toCents(3240));
+  });
+
+  it('folha lancada abate a apurada — nao conta duas vezes', async () => {
+    await montarCenario(alfa.id);
+    await motoristaComPonto(alfa.id, 'Carlos Ponto', toCents(180), 18);
+
+    // O dono lanca a folha inteira como despesa, como deveria.
+    await runUnscoped('fixture', () =>
+      prisma.expense.create({
+        data: {
+          companyId: alfa.id,
+          description: 'Diárias de março',
+          category: 'PAYROLL',
+          amountCents: toCents(3240),
+          date: new Date(Date.UTC(2026, 2, 31)),
+        },
+      }),
+    );
+
+    const dono = await autenticar('dono.alfa@teste.com.br');
+    const res = await dono.get(`/api/v1/financial/dre${PERIODO}`);
+
+    expect(res.body.folha.lancadaComoDespesa.cents).toBe(toCents(3240));
+    expect(res.body.folha.naoLancada.cents).toBe(0);
+    // Com tudo lancado, os dois lucros coincidem — que e o sinal de que o
+    // financeiro esta em dia.
+    expect(res.body.lucroConsiderandoFolhaApurada.cents).toBe(res.body.lucroLiquido.cents);
+  });
+
+  it('cartao em andamento nao vira diaria', async () => {
+    await montarCenario(alfa.id);
+    const motorista = await motoristaComPonto(alfa.id, 'Carlos Ponto', toCents(180), 3);
+
+    await runUnscoped('fixture', async () => {
+      const veiculo = await prisma.vehicle.findFirstOrThrow({ where: { companyId: alfa.id } });
+      await prisma.timecard.create({
+        data: {
+          companyId: alfa.id,
+          driverId: motorista.id,
+          vehicleId: veiculo.id,
+          date: new Date(Date.UTC(2026, 2, 20)),
+          status: 'IN_PROGRESS',
+        },
+      });
+    });
+
+    const dono = await autenticar('dono.alfa@teste.com.br');
+    const res = await dono.get(`/api/v1/financial/dre${PERIODO}`);
+
+    // Turno aberto pode terminar sem virar diaria (bateu entrada e foi embora).
+    // Contar um dia que ainda nao acabou seria antecipar custo que talvez nao exista.
+    expect(res.body.folha.diasApurados).toBe(3);
+  });
+
+  it('a folha de uma frota nao aparece no DRE da outra', async () => {
+    await montarCenario(alfa.id);
+    await motoristaComPonto(alfa.id, 'Carlos Ponto', toCents(180), 18);
+    await montarCenario(beta.id);
+
+    const donoBeta = await autenticar('dono.beta@teste.com.br');
+    const res = await donoBeta.get(`/api/v1/financial/dre${PERIODO}`);
+
+    expect(res.body.folha.diasApurados).toBe(0);
+    expect(res.body.folha.apuradaPeloPonto.cents).toBe(0);
+  });
+});
+
+describe('exportacao para o contador', () => {
+  it('devolve CSV com uma linha por lancamento e despesa negativa', async () => {
+    await montarCenario(alfa.id);
+    const dono = await autenticar('dono.alfa@teste.com.br');
+
+    const res = await dono.get(`/api/v1/financial/export.csv${PERIODO}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toContain('attachment');
+
+    const texto = res.text;
+    // BOM: sem ele o Excel em portugues abre "José" como "JosÃ©".
+    expect(texto.charCodeAt(0)).toBe(0xfeff);
+
+    const linhas = texto.slice(1).split('\r\n');
+    expect(linhas[0]).toBe('data;tipo;categoria;descricao;competencia;valor');
+
+    // Despesa entra NEGATIVA: aberto na planilha, a coluna soma sozinha e da o
+    // resultado do periodo. Com tudo positivo, quem abre precisa saber quais
+    // linhas subtrair — e alguem sempre erra.
+    const despesa = linhas.find((l) => l.includes('DESPESA'));
+    expect(despesa, 'o periodo tem despesa').toBeTruthy();
+    expect(despesa!.split(';').pop()).toMatch(/^-/);
+
+    // Virgula decimal: ponto faz o Excel em pt-BR ler 480.50 como 480 mil.
+    const receita = linhas.find((l) => l.includes('MENSALIDADE'));
+    expect(receita!.split(';').pop()).toMatch(/^\d+,\d{2}$/);
+  });
+
+  it('texto que parece formula e desarmado antes de virar celula', () => {
+    /*
+     * O texto vem de quem digita. Uma despesa descrita como `=HYPERLINK(...)`
+     * viraria codigo executavel ao abrir o arquivo na maquina do contador — e o
+     * contador abre por confiar em quem mandou.
+     *
+     * Testado direto no escapador, e nao pela rota, porque o que se prova aqui e
+     * a regra: quais entradas sao desarmadas e, tao importante quanto, quais
+     * NAO podem ser. A primeira versao protegia tambem o valor negativo, e
+     * `'-320,75` vira TEXTO na planilha: a coluna deixava de somar, e a defesa
+     * quebrava exatamente o recurso que ela serve.
+     */
+    const perigosos = [
+      '=HYPERLINK("http://ruim","clique")',
+      '+1+1',
+      '@SUM(A1:A9)',
+      '-CMD|calc',
+    ];
+    for (const entrada of perigosos) {
+      const saida = campoCsv(entrada);
+      expect(saida.replace(/^"/, '').startsWith(String.fromCharCode(39)), entrada).toBe(true);
+    }
+
+    // Valor monetario negativo NAO pode ser desarmado: precisa continuar numero.
+    for (const numero of ['-320,75', '-1,00', '480,50']) {
+      expect(campoCsv(numero), numero).toBe(numero);
+    }
+  });
+
+  it('gestor sem permissao de financeiro nao exporta', async () => {
+    await criarUsuario(alfa, 'MANAGER', 'gestor.sem.financeiro@teste.com.br', {
+      canManageFinance: false,
+    });
+    const gestor = await autenticar('gestor.sem.financeiro@teste.com.br');
+
+    const res = await gestor.get(`/api/v1/financial/export.csv${PERIODO}`);
+    expect(res.status).toBe(403);
   });
 });

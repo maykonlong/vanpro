@@ -50,9 +50,44 @@ function Resultado({ from, to }: { from: string; to: string }) {
     (signal) => api.get('/financial/dre/by-vehicle', { from, to }, signal),
     [from, to],
   );
+  const exportar = useAction();
+
+  /*
+   * O download passa pelo cliente de API, e não por um `<a href>`.
+   *
+   * Um link direto sairia sem o cabeçalho de CSRF e sem a renovação de sessão —
+   * e o defeito só apareceria quinze minutos depois do login, quando o acesso
+   * expira: o contador clicaria e receberia a página de erro do servidor em vez
+   * do arquivo. Aqui a resposta vem como blob pelo mesmo caminho de todas as
+   * outras chamadas, e só então vira arquivo no computador.
+   */
+  const onExportar = async () => {
+    await exportar.run(async () => {
+      const blob = await api.blob('/financial/export.csv', { from, to });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `vanpro-financeiro-${from}-a-${to}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Sem isto o blob fica na memória da aba até ela ser fechada.
+      URL.revokeObjectURL(url);
+      return true;
+    });
+  };
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-ink-400">
+          Período de {formatDate(from)} a {formatDate(to)}.
+        </p>
+        <Button variant="secondary" loading={exportar.pending} onClick={() => void onExportar()}>
+          Exportar para planilha
+        </Button>
+      </div>
+      <InlineError message={exportar.error} />
       {dre.loading ? <SkeletonList rows={2} /> : null}
       {dre.error ? <ErrorState message={dre.error} onRetry={dre.reload} /> : null}
 
@@ -89,6 +124,55 @@ function Resultado({ from, to }: { from: string; to: string }) {
             </ul>
           </Card>
         </div>
+      ) : null}
+
+      {/*
+        O lucro acima é de CAIXA: só conta o que foi pago e registrado. Isso
+        reconcilia com o extrato — e produzia um número sistematicamente
+        otimista, porque a diária do motorista só entrava se alguém lembrasse de
+        lançar. O trabalho aconteceu, o cartão de ponto está fechado, e o custo
+        não aparecia em lugar nenhum.
+
+        Somar a folha no lucro contaria em dobro assim que o lançamento fosse
+        feito. O que se faz aqui é o contrário: deixa o número de caixa intacto
+        e mostra o tamanho do que falta lançar.
+      */}
+      {dre.data && dre.data.folha.naoLancada.cents > 0 ? (
+        <Card className="border-warn-400/40 bg-warn-soft">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-base font-semibold text-warn-400">
+                Faltam {dre.data.folha.naoLancada.formatted} de diárias no resultado
+              </h2>
+              <span className="text-xs text-warn-400">
+                {dre.data.folha.diasApurados} dia(s) de ponto fechado no período
+              </span>
+            </div>
+            <p className="text-sm text-ink-200">
+              O ponto registra <strong>{dre.data.folha.apuradaPeloPonto.formatted}</strong> em
+              diárias devidas, e há{' '}
+              <strong>{dre.data.folha.lancadaComoDespesa.formatted}</strong> lançado como despesa de
+              folha. Enquanto a diferença existir, o lucro acima está otimista: considerando as
+              diárias, ele seria{' '}
+              <strong>{dre.data.lucroConsiderandoFolhaApurada.formatted}</strong>.
+            </p>
+            {dre.data.folha.porMotorista.length > 0 ? (
+              <ul className="flex flex-col gap-1 text-sm" data-testid="dre-folha-motoristas">
+                {dre.data.folha.porMotorista.map((m) => (
+                  <li key={m.driverId} className="flex flex-wrap justify-between gap-2">
+                    <span className="text-ink-200">
+                      {m.nome} — {m.dias} dia(s) × {m.diaria.formatted}
+                    </span>
+                    <span className="text-ink-50">{m.total.formatted}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p className="text-xs text-ink-400">
+              Lance a folha em Despesas, categoria “Folha de pagamento”, para o resultado fechar.
+            </p>
+          </div>
+        </Card>
       ) : null}
 
       <Card>
