@@ -15,10 +15,24 @@ ARQ=".accept-risk.md"
 HOJE=$(date -u +%Y-%m-%d)
 VENCIDOS=0
 TOTAL=0
+SEM_DATA=0
+
+# Contagem por SECAO, e nao por linha de prazo: um risco que esquece a linha
+# "Revisar ate" nao pode desaparecer da conta.
+SECOES=$(grep -cE '^## R-[0-9]' "$ARQ" || echo 0)
 
 while IFS= read -r linha; do
   data=$(echo "$linha" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
-  [ -z "$data" ] && continue
+  if [ -z "$data" ]; then
+    # Antes isto era `continue` silencioso: o item saia da conta e ninguem
+    # notava. "Revisar ate: antes do primeiro cliente pagante" e uma intencao,
+    # nao um prazo — e o proprio preambulo do arquivo diz que item sem data de
+    # revisao nao e risco aceito, e risco esquecido.
+    printf '[33m?[0m      sem data verificavel: %s
+' "$linha"
+    SEM_DATA=$((SEM_DATA + 1))
+    continue
+  fi
   TOTAL=$((TOTAL + 1))
   if [ "$data" \< "$HOJE" ]; then
     printf '\033[31mVENCIDO\033[0m %s (prazo era %s)\n' "$linha" "$data"
@@ -32,4 +46,13 @@ if [ "$VENCIDOS" -gt 0 ]; then
   exit 1
 fi
 
-printf '\033[32mok\033[0m     %d risco(s) aceito(s), nenhum com prazo vencido\n' "$TOTAL"
+if [ "$SEM_DATA" -gt 0 ]; then
+  printf '
+[33m%d risco(s) sem prazo verificavel — nao contam como aceitos.[0m
+' "$SEM_DATA"
+  echo "Escreva uma data ISO (AAAA-MM-DD) em **Revisar ate:**, ou o item some da"
+  echo "conta e ninguem volta a olhar para ele. Nao falha o build; aparece."
+fi
+
+printf '[32mok[0m     %d de %d risco(s) com prazo verificavel, nenhum vencido
+' "$TOTAL" "$SECOES"

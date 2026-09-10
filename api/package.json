@@ -17,9 +17,9 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:seed": "ts-node --transpile-only prisma/seed.ts",
-    "test": "vitest run",
+    "test": "bash ../infra/scripts/suite-livre.sh && vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "bash ../infra/scripts/suite-livre.sh && vitest run --coverage",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "prisma": {

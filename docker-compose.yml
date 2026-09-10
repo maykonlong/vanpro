@@ -13,9 +13,26 @@ name: vanpro
 #
 # Endereco: https://vanpro.localhost:8443  (a 8080 so redireciona)
 
+# Rotacao de log, para os 4 servicos.
+#
+# O padrao do Docker e `json-file` SEM limite: o arquivo cresce ate encher o
+# disco, e um disco cheio derruba o banco junto. E, do outro lado do mesmo
+# problema, `docker logs` e tudo que existe — reiniciar o contentor apaga o
+# historico. Trinta dias de investigacao de incidente somem num `docker compose
+# up -d`.
+#
+# 20 MB x 5 arquivos por servico da ~100 MB de teto e alguns dias de historico
+# num volume de trafego de frota escolar. Nao substitui agregador externo; e o
+# minimo para que "o que aconteceu ontem?" tenha resposta.
+x-log: &log
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:e013e867e712fec275706a6c51c966f0bb0c93cfa8f51000f85a15f9865a28cb
     container_name: vanpro-postgres
     # O entrypoint proprio copia o material de TLS para dentro do container e
     # ajusta dono e modo antes de o servidor subir: o PostgreSQL recusa chave
@@ -48,6 +65,7 @@ services:
       - ./infra/postgres/entrypoint-tls.sh:/usr/local/bin/entrypoint-tls.sh:ro
       - ./infra/postgres/pg_hba.conf:/etc/vanpro/pg_hba.conf:ro
       - ./infra/certs/db:/certs:ro
+    logging: *log
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d vanpro"]
@@ -123,13 +141,14 @@ services:
       - log_connections=on
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: vanpro-redis
     ports:
       - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    logging: *log
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -219,6 +238,7 @@ services:
     volumes:
       - uploads:/app/storage/uploads
       - ./infra/certs/db:/certs:ro
+    logging: *log
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -254,6 +274,7 @@ services:
       # de camada de imagem viaja junto com a imagem para todo lugar onde ela
       # for parar, e nao ha como tira-la de la depois.
       - ./infra/certs/web:/etc/nginx/certs:ro
+    logging: *log
     restart: unless-stopped
     read_only: true
     # O tmpfs monta POR CIMA do diretorio que a imagem ja preparou, e o ponto de

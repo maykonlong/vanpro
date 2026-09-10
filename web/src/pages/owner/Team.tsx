@@ -59,6 +59,7 @@ export function Team() {
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const [archiving, setArchiving] = useState<TeamMember | null>(null);
   const [inviteInfo, setInviteInfo] = useState<InviteResponse | null>(null);
+  const [linkCopiado, setLinkCopiado] = useState(false);
 
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -97,7 +98,8 @@ export function Team() {
       }),
     );
     if (result) {
-      setInviteInfo(result);
+      setLinkCopiado(false);
+    setInviteInfo(result);
       setInviting(false);
       setEmail('');
       setName('');
@@ -162,18 +164,39 @@ export function Team() {
             message={`Convite criado para ${inviteInfo.member.email}, válido até ${formatDate(inviteInfo.inviteExpiresAt)}.`}
           />
           {!inviteInfo.emailSent ? (
-            <p className="rounded-lg border border-warn-400/40 bg-warn-soft px-3 py-2 text-sm text-warn-400">
-              Não há provedor de e-mail configurado neste ambiente: o convite NÃO foi enviado.
-              Entregue o link manualmente.
+            <div className="rounded-lg border border-warn-400/40 bg-warn-soft px-3 py-2 text-sm text-warn-400">
+              <p>
+                Esta versão não envia e-mail. <strong>Copie o link abaixo</strong> e entregue à
+                pessoa — por WhatsApp, pessoalmente, como preferir. Ele vale{' '}
+                {formatDate(inviteInfo.inviteExpiresAt)} e serve uma vez só.
+              </p>
               {inviteInfo.inviteLink ? (
-                <>
-                  {' '}
-                  <a className="underline" href={inviteInfo.inviteLink}>
-                    Abrir link do convite
-                  </a>
-                </>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {/* `readOnly` e não `disabled`: o texto precisa ser selecionável
+                      para quem copia à mão, e campo desabilitado não é. */}
+                  <input
+                    readOnly
+                    value={inviteInfo.inviteLink}
+                    aria-label="Link do convite"
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="min-h-[44px] min-w-0 flex-1 rounded-lg border border-ink-700 bg-ink-900 px-3 text-xs text-ink-100"
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      void navigator.clipboard
+                        .writeText(inviteInfo.inviteLink!)
+                        .then(() => setLinkCopiado(true))
+                        // Sem permissão de área de transferência o campo acima
+                        // continua servindo: o botão falha, a entrega não.
+                        .catch(() => setLinkCopiado(false));
+                    }}
+                  >
+                    {linkCopiado ? 'Copiado' : 'Copiar link'}
+                  </Button>
+                </div>
               ) : null}
-            </p>
+            </div>
           ) : null}
         </div>
       ) : null}

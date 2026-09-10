@@ -1,7 +1,17 @@
 # syntax=docker/dockerfile:1
 
 # ---------- build ----------
-FROM node:22-alpine AS builder
+# Imagem fixada por DIGEST, e nao so por tag.
+#
+# `node:22-alpine` e reescrita pelo upstream a cada patch: o mesmo Dockerfile
+# produz imagens diferentes em dias diferentes, e "funciona na minha maquina"
+# passa a incluir "porque a minha baixou a de terca". Pior, e o caminho por onde
+# uma imagem base comprometida entra sem ninguem mudar uma linha — o vetor de
+# supply chain que hoje responde pela maior parte dos incidentes em Node.
+#
+# A tag continua escrita ao lado do digest de proposito: ela diz o que E, o
+# digest diz QUAL. Renovar e trabalho do Dependabot, que ja acompanha `docker`.
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS builder
 WORKDIR /app
 
 # npm fixado, e nao "o que vier na imagem base".
@@ -28,7 +38,7 @@ RUN npm run build
 RUN npm ci --omit=dev && npx prisma generate
 
 # ---------- runtime ----------
-FROM node:22-alpine AS runner
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

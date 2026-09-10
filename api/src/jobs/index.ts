@@ -92,6 +92,51 @@ async function purgeExpiredCredentials(): Promise<void> {
   }
 }
 
+/**
+ * Minimizacao do IP na trilha de auditoria, depois de 12 meses.
+ *
+ * A trilha precisa do IP para responder "de onde partiu isso?" — e apagar cedo
+ * demais destroi a propria finalidade que justifica guarda-lo. Guardar para
+ * sempre, por outro lado, e retencao sem prazo de dado pessoal, que e o achado
+ * que este job fecha.
+ *
+ * A saida e truncar, nao apagar: a rede (`/24` em IPv4, `/48` em IPv6) ainda
+ * distingue "veio da escola" de "veio de outro pais", que e o que uma
+ * investigacao tardia usa, e deixa de identificar o assinante.
+ *
+ * `AuditLog.ipAddress` NAO entra no hash da cadeia (`computeHash` usa acao,
+ * descricao, empresa, usuario e data) — por isso este UPDATE nao rompe a
+ * verificacao. Se um dia o IP entrar no hash, esta rotina precisa mudar junto,
+ * e e para isso que este paragrafo existe.
+ */
+async function minimizarIpsAntigos(): Promise<void> {
+  const corte = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+
+  const afetados = await runUnscoped('cron-lgpd-ip', async () => {
+    // GUARDA: sql-cru-auditado — trunca IP na propria coluna, sem ler nem cruzar dado de empresa; o unico filtro e a data.
+    const n = await prisma.$executeRaw`
+      UPDATE "AuditLog"
+         SET "ipAddress" = CASE
+               WHEN "ipAddress" LIKE '%:%'
+                 THEN split_part("ipAddress", ':', 1) || ':' || split_part("ipAddress", ':', 2) || ':' || split_part("ipAddress", ':', 3) || '::/48'
+               ELSE split_part("ipAddress", '.', 1) || '.' || split_part("ipAddress", '.', 2) || '.' || split_part("ipAddress", '.', 3) || '.0/24'
+             END
+       WHERE "createdAt" < ${corte}
+         AND "ipAddress" IS NOT NULL
+         AND "ipAddress" NOT LIKE '%/%'`;
+    return n;
+  });
+
+  if (afetados > 0) {
+    logger.info({ afetados }, 'IPs da trilha com mais de 12 meses reduzidos a rede');
+    await audit({
+      action: 'LGPD_FORGET_EXECUTED',
+      description: `Minimização automática: ${afetados} endereços IP com mais de 12 meses truncados para a rede.`,
+      companyId: null,
+    });
+  }
+}
+
 /** Executa protegendo o agendador: excecao dentro do job nao pode matar o processo. */
 function guarded(name: string, fn: () => Promise<unknown>) {
   return () => {
@@ -115,12 +160,16 @@ const exclusivos = {
   trials: umaRodadaPorVez(marcarTrialsVencidos),
   overdue: umaRodadaPorVez(markOverdueInvoices),
   lgpdPurge: umaRodadaPorVez(purgeExpiredCredentials),
+  lgpdIp: umaRodadaPorVez(minimizarIpsAntigos),
 } as const;
 
 export function startJobs(): void {
   tasks.push(cron.schedule('7 * * * *', guarded('trials', exclusivos.trials), { timezone: TZ }));
   tasks.push(cron.schedule('17 3 * * *', guarded('overdue', exclusivos.overdue), { timezone: TZ }));
   tasks.push(cron.schedule('37 4 * * *', guarded('lgpd-purge', exclusivos.lgpdPurge), { timezone: TZ }));
+  // Semanal, e nao diario: a janela e de 12 meses, entao rodar todo dia so
+  // varre a mesma tabela sem nada para fazer.
+  tasks.push(cron.schedule('47 4 * * 0', guarded('lgpd-ip', exclusivos.lgpdIp), { timezone: TZ }));
   logger.info({ jobs: tasks.length }, 'rotinas agendadas ativas');
 }
 
@@ -130,7 +179,12 @@ export function stopJobs(): void {
 }
 
 /** Exportado para os testes exercitarem a regra sem esperar o relogio. */
-export const __jobs = { marcarTrialsVencidos, markOverdueInvoices, purgeExpiredCredentials };
+export const __jobs = {
+  marcarTrialsVencidos,
+  markOverdueInvoices,
+  purgeExpiredCredentials,
+  minimizarIpsAntigos,
+};
 
 /** As mesmas rotinas com a trava de reentrancia — o que o agendador chama. */
 export const __jobsExclusivos = exclusivos;

@@ -315,20 +315,37 @@ router.post(
 
     const link = `${env.FRONTEND_URL}/aceitar-convite?token=${rawToken}`;
 
-    // Sem provedor de e-mail o convite nao "quase funciona": ele e registrado
-    // como pendente de envio manual. Devolver o link em staging/producao
-    // transformaria a resposta de uma API autenticada em canal de distribuicao
-    // de credencial — em `local` isso e aceitavel para desenvolver.
+    /*
+     * O link volta para quem acabou de criar o convite — em QUALQUER ambiente.
+     *
+     * A versao anterior so o devolvia em `local`, com o argumento de que
+     * entregar o token cru numa resposta de API seria transforma-la em canal de
+     * distribuicao de credencial. O argumento parece prudente e produz um
+     * recurso quebrado: sem provedor de e-mail, ninguem em producao jamais
+     * obtem o token, e o convite vira uma linha no banco que expira em 72h sem
+     * ter servido para nada. O dono cadastra a secretaria, ve "convite enviado",
+     * e a secretaria nunca recebe.
+     *
+     * Quem recebe o link aqui e exatamente quem tem direito a ele: o OWNER ou
+     * MANAGER autenticado que acabou de emiti-lo, por TLS, com CSRF conferido,
+     * na resposta de um POST — nao numa URL que entra em log de proxy nem num
+     * e-mail que atravessa terceiros. Ele entrega por WhatsApp, presencialmente
+     * ou como preferir, que e o que ja acontece hoje na pratica.
+     *
+     * A entrega fica auditada: se um token vazar, a trilha diz quem o tinha.
+     */
     logger.warn(
       { userCompanyId: membro.id, expiresAt: inviteExpiresAt },
-      '[SEM PROVEDOR DE E-MAIL] convite gerado e não enviado; entregue o link manualmente',
+      '[SEM PROVEDOR DE E-MAIL] convite gerado; o link foi entregue a quem o emitiu',
     );
 
     res.status(201).json({
       member: serializeMembro(membro),
+      // `false` de proposito e sem meio-termo: nao ha provedor de e-mail neste
+      // produto. A tela usa isto para dizer "copie e envie", em vez de "enviado".
       emailSent: false,
       inviteExpiresAt,
-      ...(env.APP_ENV === 'local' ? { inviteLink: link } : {}),
+      inviteLink: link,
     });
   },
 );

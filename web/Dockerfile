@@ -1,7 +1,17 @@
 # syntax=docker/dockerfile:1
 
 # --- build -----------------------------------------------------------------
-FROM node:22-alpine AS builder
+# Imagem fixada por DIGEST, e nao so por tag.
+#
+# `node:22-alpine` e reescrita pelo upstream a cada patch: o mesmo Dockerfile
+# produz imagens diferentes em dias diferentes, e "funciona na minha maquina"
+# passa a incluir "porque a minha baixou a de terca". Pior, e o caminho por onde
+# uma imagem base comprometida entra sem ninguem mudar uma linha — o vetor de
+# supply chain que hoje responde pela maior parte dos incidentes em Node.
+#
+# A tag continua escrita ao lado do digest de proposito: ela diz o que E, o
+# digest diz QUAL. Renovar e trabalho do Dependabot, que ja acompanha `docker`.
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS builder
 
 WORKDIR /app
 
@@ -19,7 +29,9 @@ COPY . .
 RUN npm run build
 
 # --- runtime ---------------------------------------------------------------
-FROM nginx:alpine AS runner
+# `nginx:alpine` nao tinha versao nenhuma: a tag flutua entre minors e um
+# `docker build` de amanha podia trocar o servidor por baixo do produto.
+FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de AS runner
 
 # Portas 8080/8443 e nao 80/443: abaixo de 1024 exige privilegio, e este
 # container roda como usuario comum. A 8080 so redireciona; a app vive na 8443.

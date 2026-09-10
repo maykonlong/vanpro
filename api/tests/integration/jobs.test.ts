@@ -231,3 +231,90 @@ describe('purga LGPD de credenciais', () => {
     expect(Number(trilha[0]!.n)).toBe(0);
   });
 });
+
+describe('minimizacao de IP na trilha', () => {
+  /*
+   * Retencao de dado pessoal sem prazo e o achado que este job fecha. A trilha
+   * precisa do IP para responder "de onde partiu", entao a saida nao e apagar:
+   * e reduzir a rede depois de 12 meses, preservando a linha e a cadeia.
+   */
+  async function gravarTrilha(ip: string, idadeEmDias: number): Promise<string> {
+    return runUnscoped('fixture', async () => {
+      const criado = await prisma.auditLog.create({
+        data: {
+          companyId: alfa.id,
+          action: 'AUTH_LOGIN_SUCCESS',
+          description: 'entrada para o teste de minimizacao',
+          ipAddress: ip,
+          hash: `h-${ip}-${idadeEmDias}`,
+          prevHash: null,
+        },
+      });
+      // `createdAt` tem default; empurrar para tras exige SQL cru.
+      const quando = new Date(Date.now() - idadeEmDias * DIA);
+      await prisma.$executeRaw`UPDATE "AuditLog" SET "createdAt" = ${quando} WHERE id = ${criado.id}`;
+      return criado.id;
+    });
+  }
+
+  async function ipDe(id: string): Promise<string | null> {
+    const [linha] = await runUnscoped('check', () =>
+      prisma.$queryRaw<Array<{ ipAddress: string | null }>>`
+        SELECT "ipAddress" FROM "AuditLog" WHERE id = ${id}`,
+    );
+    return linha?.ipAddress ?? null;
+  }
+
+  it('IPv4 com mais de 12 meses vira a rede /24; o recente fica intacto', async () => {
+    const velho = await gravarTrilha('200.147.35.149', 400);
+    const novo = await gravarTrilha('200.147.35.150', 10);
+
+    await __jobs.minimizarIpsAntigos();
+
+    expect(await ipDe(velho)).toBe('200.147.35.0/24');
+    // O recente continua identificando: a investigacao de um incidente de
+    // ontem precisa dele inteiro.
+    expect(await ipDe(novo)).toBe('200.147.35.150');
+  });
+
+  it('IPv6 antigo vira /48', async () => {
+    const velho = await gravarTrilha('2804:14d:baa0:8f5a:1:2:3:4', 400);
+    await __jobs.minimizarIpsAntigos();
+    expect(await ipDe(velho)).toBe('2804:14d:baa0::/48');
+  });
+
+  it('rodar duas vezes nao trunca o que ja foi truncado', async () => {
+    const velho = await gravarTrilha('10.20.30.40', 400);
+
+    await __jobs.minimizarIpsAntigos();
+    const primeira = await ipDe(velho);
+    await __jobs.minimizarIpsAntigos();
+
+    expect(primeira).toBe('10.20.30.0/24');
+    // Sem o filtro `NOT LIKE '%/%'`, a segunda passada produziria
+    // "10.20.30.0/24" -> "10.20.0.0/24" e assim por diante, apagando por
+    // erosao o que deveria ter sido preservado.
+    expect(await ipDe(velho)).toBe(primeira);
+  });
+
+  it('linha sem IP nao e tocada', async () => {
+    const semIp = await runUnscoped('fixture', () =>
+      prisma.auditLog.create({
+        data: {
+          companyId: alfa.id,
+          action: 'AUTH_LOGOUT',
+          description: 'sem ip',
+          ipAddress: null,
+          hash: 'h-sem-ip',
+          prevHash: null,
+        },
+      }),
+    );
+    await runUnscoped('fixture', () =>
+      prisma.$executeRaw`UPDATE "AuditLog" SET "createdAt" = ${new Date(Date.now() - 400 * DIA)} WHERE id = ${semIp.id}`,
+    );
+
+    await __jobs.minimizarIpsAntigos();
+    expect(await ipDe(semIp.id)).toBeNull();
+  });
+});
