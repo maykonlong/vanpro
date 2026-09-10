@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: vanpro
+    type: file
+    disableDeletion: true
+    # `false`: o painel e do repositorio. Editar pela interface e perder a
+    # edicao no proximo restart e pior que nao poder editar.
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/paineis

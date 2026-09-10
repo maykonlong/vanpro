@@ -43,6 +43,36 @@ services:
       - no-new-privileges:true
     networks: [vanpro]
 
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: vanpro-grafana
+    restart: unless-stopped
+    depends_on: [prometheus]
+    environment:
+      # Senha do painel vem do ambiente, nunca do arquivo. Sem ela o Grafana
+      # sobe com `admin/admin` — que e o mesmo que sem senha.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:?defina GRAFANA_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?defina GRAFANA_PASSWORD}
+      # Ninguem se cadastra sozinho num painel que mostra a operacao inteira.
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      # Sem telemetria para fora: o nome das rotas do produto e informacao.
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+    volumes:
+      - ./grafana/provisionamento:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisionamento:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/paineis:/etc/grafana/paineis:ro
+      - grafana_dados:/var/lib/grafana
+
+    # Sem `ports`, pelo mesmo motivo do Prometheus: o painel mostra o mapa
+    # inteiro da operacao — quais rotas existem, quanto trafego cada uma recebe,
+    # quando o sistema cai. Para abrir, tunel SSH:
+    #   ssh -L 3001:vanpro-grafana:3000 usuario@servidor
+    security_opt:
+      - no-new-privileges:true
+    networks: [vanpro]
+
 networks:
   # A rede que o `docker-compose.yml` da raiz cria (projeto `vanpro`). Externa
   # aqui: este compose usa a rede, não a possui — se ela sumir, este stack falha
@@ -53,3 +83,4 @@ networks:
 
 volumes:
   prometheus_dados:
+  grafana_dados:

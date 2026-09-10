@@ -70,6 +70,29 @@ groups:
           summary: "VanPro: INCIDENTE — consulta sem contexto de empresa ou com empresa divergente"
           description: "vanpro_violacoes_tenant_total saiu de zero. Isto e vazamento potencial entre empresas, com dado de crianca. Trate como incidente: docs/RUNBOOK-LGPD-BREACH.md, passo 1 (registrar a hora UTC da deteccao — o prazo da ANPD comeca agora)."
 
+      # ─── A trilha parou de gravar ────────────────────────────────────────
+      #
+      # `vanpro_falhas_auditoria_total` nasceu de um incidente real deste
+      # projeto: uma trava mal escrita fez `audit()` estourar em toda chamada, e
+      # como ele engole exceção de propósito — para nunca derrubar a operação
+      # principal — a trilha inteira parou de gravar EM SILÊNCIO. Oito testes
+      # falharam antes de alguém entender o que estava acontecendo.
+      #
+      # Esse silêncio é o preço combinado do desenho, e este alerta é a única
+      # forma de a perda aparecer ANTES de alguém precisar da trilha como prova
+      # e descobrir que ela não existe.
+      #
+      # `> 0` e `0m` pelo mesmo motivo do alerta de tenant: não existe "um
+      # pouquinho de auditoria perdida". O LGPD Art. 37 exige o registro; um
+      # buraco nele é buraco na prova, não estatística.
+      - alert: VanProTrilhaDeAuditoriaFalhando
+        expr: vanpro_falhas_auditoria_total > 0 or increase(vanpro_falhas_auditoria_total[5m]) > 0
+        for: 0m
+        labels: { severity: critical, incidente: 'lgpd' }
+        annotations:
+          summary: "VanPro: a trilha de auditoria deixou de gravar evento"
+          description: "vanpro_falhas_auditoria_total saiu de zero. Cada incremento e um evento que aconteceu no sistema e NAO ficou registrado — e a trilha e o que prova quem fez o que. Procure `falha ao gravar audit log` no log da API; o `err` traz a causa. Enquanto durar, considere a trilha incompleta para efeito de prova."
+
   - name: vanpro-qualidade-de-servico
     rules:
       - alert: VanProErro5xxElevado
@@ -83,6 +106,45 @@ groups:
         annotations:
           summary: "VanPro: mais de 5% das respostas sao 5xx"
           description: "Taxa de erro do servidor sustentada por 5m. O clamp_min evita divisao por zero em periodo sem trafego — sem ele a expressao vira NaN e o alerta nunca dispara justamente na madrugada."
+
+      # ─── Lentidao sustentada, por rota ───────────────────────────────────
+      #
+      # 1,5s de p95 e o ponto em que a pessoa na porta da escola conclui que
+      # "travou" e recarrega — o que dobra a carga exatamente quando ela ja esta
+      # alta.
+      #
+      # O limiar NAO e chute: com uma conexao a listagem de alunos responde em
+      # ~500ms, e a saturacao medida com vinte simultaneas levou o p95 a 3s. O
+      # corte fica entre os dois, na faixa em que ainda da tempo de agir.
+      #
+      # Rotulado por rota de proposito: "o sistema esta lento" nao aciona
+      # ninguem; "/students esta lento" aponta para onde olhar. As rotas ja
+      # chegam como PADRAO (`/students/:id`), nunca com id interpolado — metrica
+      # com id vira indice de quem existe no sistema.
+      #
+      # Primeira suspeita quando disparar: saturacao, e nao consulta lenta. O
+      # calculo de senha ja derrubou a fila principal inteira uma vez neste
+      # projeto (5 tiques de event loop de 51 possiveis), e o sintoma foi
+      # exatamente este — tudo lento, nada quebrado.
+      - alert: VanProLatenciaAlta
+        expr: |
+          (
+            histogram_quantile(
+              0.95,
+              sum(rate(vanpro_requisicao_duracao_ms_bucket[10m])) by (le, rota)
+            )
+            # Sem esta segunda metade, rota SEM trafego produz `NaN` e polui a
+            # avaliacao: foram 70 series numa medicao real, quase todas vazias.
+            # `NaN > 1500` e falso, entao o alerta nao disparava a toa — mas
+            # expressao que a pessoa nao consegue ler no meio do incidente e
+            # tao ruim quanto expressao errada.
+            and on (rota) sum(rate(vanpro_requisicao_duracao_ms_count[10m])) by (rota) > 0
+          ) > 1500
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "VanPro: p95 acima de 1,5s em {{ $labels.rota }}"
+          description: "Latencia sustentada por 10m. Confira primeiro se ha volume incomum em /auth/login: hash de senha e o trabalho mais caro do processo, e ja foi causa de lentidao geral. Depois, consultas lentas no log do Postgres (log_min_duration_statement=500)."
 
       - alert: VanProSentinelaBloqueandoMuito
         expr: increase(vanpro_sentinela_bloqueios_total[10m]) > 50
