@@ -530,6 +530,7 @@
     line-height: 1.5;
   }
   .horizonte li + li { margin-top: 10px; }
+  .horizonte s { color: var(--tinta-fraca); text-decoration-thickness: 1px; }
   .horizonte li::before {
     content: "";
     position: absolute;
@@ -642,9 +643,9 @@
 
     <dl class="identificacao">
       <div><dt>Data</dt><dd>10/09/2026</dd></div>
-      <div><dt>Versão</dt><dd>805fc2a</dd></div>
-      <div><dt>Nota geral</dt><dd>74&thinsp;%</dd></div>
-      <div><dt>Itens aprovados</dt><dd>5 de 12</dd></div>
+      <div><dt>Versão</dt><dd>9f8926b</dd></div>
+      <div><dt>Nota geral</dt><dd>81&thinsp;%</dd></div>
+      <div><dt>Itens aprovados</dt><dd>6 de 12</dd></div>
       <div><dt>Reprovados</dt><dd>1</dd></div>
     </dl>
   </header>
@@ -670,12 +671,12 @@
         <div class="linha-nota"><a href="#testes">Testes e provas</a><div class="trilho"><i class="f-bom" style="width:88%"></i></div><div class="valor v-bom">88%</div></div>
         <div class="linha-nota"><a href="#privacidade">Privacidade e LGPD</a><div class="trilho"><i class="f-bom" style="width:85%"></i></div><div class="valor v-bom">85%</div></div>
         <div class="linha-nota"><a href="#uso">Experiência de uso</a><div class="trilho"><i class="f-bom" style="width:85%"></i></div><div class="valor v-bom">85%</div></div>
+        <div class="linha-nota"><a href="#escala">Escalabilidade</a><div class="trilho"><i class="f-bom" style="width:85%"></i></div><div class="valor v-bom">85%</div></div>
+        <div class="linha-nota"><a href="#observabilidade">Enxergar o que acontece</a><div class="trilho"><i class="f-ressalva" style="width:82%"></i></div><div class="valor v-ressalva">82%</div></div>
         <div class="linha-nota"><a href="#confiabilidade">Confiabilidade</a><div class="trilho"><i class="f-ressalva" style="width:80%"></i></div><div class="valor v-ressalva">80%</div></div>
+        <div class="linha-nota"><a href="#velocidade">Velocidade</a><div class="trilho"><i class="f-ressalva" style="width:80%"></i></div><div class="valor v-ressalva">80%</div></div>
         <div class="linha-nota"><a href="#infra">Infraestrutura e publicação</a><div class="trilho"><i class="f-ressalva" style="width:78%"></i></div><div class="valor v-ressalva">78%</div></div>
-        <div class="linha-nota"><a href="#observabilidade">Enxergar o que acontece</a><div class="trilho"><i class="f-ressalva" style="width:72%"></i></div><div class="valor v-ressalva">72%</div></div>
-        <div class="linha-nota"><a href="#velocidade">Velocidade</a><div class="trilho"><i class="f-ressalva" style="width:70%"></i></div><div class="valor v-ressalva">70%</div></div>
         <div class="linha-nota"><a href="#negocio">Regras do negócio</a><div class="trilho"><i class="f-ressalva" style="width:65%"></i></div><div class="valor v-ressalva">65%</div></div>
-        <div class="linha-nota"><a href="#escala">Escalabilidade</a><div class="trilho"><i class="f-grave" style="width:55%"></i></div><div class="valor v-grave">55%</div></div>
         <div class="linha-nota"><a href="#integracoes">Integrações externas</a><div class="trilho"><i class="f-grave" style="width:25%"></i></div><div class="valor v-grave">25%</div></div>
       </div>
 
@@ -701,10 +702,9 @@
         um teste que não rodou não descobriu que está tudo bem, descobriu que está cego.
       </p>
       <p>
-        <strong>A média de 74% não é a nota que importa.</strong> O que decide é o item mais fraco
+        <strong>A média de 81% não é a nota que importa.</strong> O que decide é o item mais fraco
         no caminho do que você quer fazer: para operar uma frota hoje, os itens que pesam estão todos
-        acima de 78. Para cobrar mensalidade pelo sistema ou atender dez frotas ao mesmo tempo,
-        os dois últimos da lista viram bloqueio.
+        acima de 80. Para cobrar mensalidade pelo sistema, o último da lista ainda é bloqueio.
       </p>
     </div>
   </section>
@@ -925,12 +925,12 @@
           <div>
             <h4>Enxergar o que acontece</h4>
             <p class="setor-frase">
-              Se der problema às 6h30 com a van na porta da escola, dá para saber o que houve
-              sem adivinhar?
+              São 6h30, a van está na porta da escola e alguém liga dizendo que não
+              consegue entrar. O que você olha?
             </p>
           </div>
           <div class="setor-nota">
-            <span class="pct">72<small>%</small></span>
+            <span class="pct">82<small>%</small></span>
             <span class="pill p-ressalva">Com ressalva</span>
           </div>
         </div>
@@ -938,23 +938,24 @@
           <section class="tem">
             <h5>O que já está de pé</h5>
             <ul>
-              <li>Cada requisição tem um número próprio que aparece no erro da tela e no registro do servidor — dá para casar os dois.</li>
-              <li>Medidores de tempo de resposta, erro e memória, no formato que qualquer painel de mercado lê.</li>
-              <li>Dois medidores existem para ficar em <strong>zero</strong>: vazamento entre empresas e falha de gravação da trilha. Qualquer número acima disso é alarme.</li>
-              <li>Registro estrutura o dado e apaga senha, token e documento automaticamente.</li>
-              <li>Registro rotaciona: não enche o disco nem some no reinício.</li>
+              <li><strong>Existe um painel</strong>, e ele responde três perguntas em ordem: vazou dado entre frotas, está rápido, a borda está recusando muita coisa.</li>
+              <li><strong>Oito alertas</strong>, carregados e conferidos contra dado real. Dois deles disparam no primeiro evento, porque medem coisas que precisam viver em zero.</li>
+              <li>O painel vem do repositório e não é editável pela tela — painel ajustado no navegador some junto com a máquina.</li>
+              <li>Nem o painel nem a coleta ficam expostos: mostram o mapa inteiro da operação, e o acesso é por túnel.</li>
+              <li>Cada requisição tem um número próprio que aparece no erro da tela e no registro do servidor.</li>
+              <li>Um grupo de alerta foi deixado <em>vazio de propósito</em>: o limiar de memória ainda não foi medido, e limiar chutado é pior que alerta nenhum.</li>
             </ul>
           </section>
           <section class="falta">
             <h5>O que falta</h5>
             <ul>
-              <li>Não há painel montado nem alerta configurado: os números existem, ninguém está olhando.</li>
-              <li>Sem coletor externo — se a máquina sumir, o histórico some com ela.</li>
-              <li>Sem aviso automático quando alguma coisa passa do limite.</li>
+              <li><strong>Ninguém é avisado.</strong> As regras acendem na tela; não há canal de notificação configurado — e às 6h30 ninguém lembra de abrir painel.</li>
+              <li>Nenhum alerta chegou a disparar de verdade: para isso seria preciso provocar o incidente que ele detecta.</li>
+              <li>Sem coletor externo: se a máquina sumir, o histórico some com ela.</li>
             </ul>
           </section>
         </div>
-        <p class="destrava"><b>O que sobe essa nota</b> Um painel e três alertas: erro acima do normal, vazamento entre empresas e falha de auditoria.</p>
+        <p class="destrava"><b>O que sobe essa nota</b> Apontar os alertas para onde a pessoa de plantão realmente olha, e provar com um disparo de teste.</p>
       </article>
     </div>
 
@@ -1010,12 +1011,12 @@
           <div>
             <h4>Velocidade</h4>
             <p class="setor-frase">
-              Quanto tempo cada coisa leva — e o quanto isso piora quando várias pessoas
-              usam ao mesmo tempo.
+              O gargalo medido não era o banco nem a rede: era a senha de outra pessoa
+              sendo embaralhada, travando o processo inteiro.
             </p>
           </div>
           <div class="setor-nota">
-            <span class="pct">70<small>%</small></span>
+            <span class="pct">80<small>%</small></span>
             <span class="pill p-ressalva">Com ressalva</span>
           </div>
         </div>
@@ -1023,23 +1024,23 @@
           <section class="tem">
             <h5>O que já está de pé</h5>
             <ul>
-              <li>O aplicativo pesa 130 KB comprimido, contra um orçamento de 400 KB. Abre rápido em 4G.</li>
-              <li>Toda listagem é paginada; nenhuma tela tenta trazer o banco inteiro.</li>
-              <li>12 índices que faltavam foram criados: sem eles, apagar um registro varria a tabela inteira.</li>
-              <li>Consulta que passar de 30 segundos é cortada, em vez de arrastar o banco junto.</li>
-              <li>Listagem de alunos responde em meio segundo com uso normal.</li>
+              <li><strong>O cálculo de senha saiu da fila principal.</strong> Com um cronômetro contando durante um login: antes o sistema atendia 5 pedidos de 51 possíveis; agora atende 62 de 97.</li>
+              <li>O custo de embaralhar a senha <strong>não foi reduzido</strong> — mudou onde ele é pago. Baixá-lo teria melhorado o gráfico e piorado exatamente o que ele protege.</li>
+              <li>Uma trava automática impede que isso volte, e ela foi testada nos dois sentidos.</li>
+              <li>O aplicativo pesa 130 KB comprimido, contra um orçamento de 400 KB.</li>
+              <li>12 índices que faltavam foram criados; consulta que passar de 30 segundos é cortada.</li>
             </ul>
           </section>
           <section class="falta">
             <h5>O que falta</h5>
             <ul>
-              <li>Entrar no sistema leva cerca de <strong>0,9 segundo</strong> — é o custo deliberado de embaralhar a senha com força. Baixar isso seria trocar segurança por número bonito.</li>
-              <li>Com 20 pessoas ao mesmo tempo, a listagem vai de 0,5 para 3 segundos: o mesmo processo embaralha senha e serve consulta.</li>
+              <li>Entrar continua levando ~0,9 s para quem está entrando. O que deixou de acontecer é o resto do sistema parar junto.</li>
+              <li>O novo tempo sob carga (o "p95") ainda não foi medido de novo contra a pilha.</li>
               <li>Relatórios são calculados na hora, sem cache.</li>
             </ul>
           </section>
         </div>
-        <p class="destrava"><b>O que sobe essa nota</b> Tirar o cálculo de senha da fila principal. A solução é separar o trabalho, nunca enfraquecer a senha.</p>
+        <p class="destrava"><b>O que sobe essa nota</b> Repetir a medição de carga que apontou o problema, agora com a correção no ar.</p>
       </article>
 
       <article class="setor" id="infra">
@@ -1131,35 +1132,37 @@
           <div>
             <h4>Escalabilidade</h4>
             <p class="setor-frase">
-              O sistema aguenta uma frota grande hoje. O que ele não aguenta é ser
-              duplicado para aguentar muitas.
+              Era o item mais fraco do laudo. Os dois bloqueios do segundo servidor
+              foram fechados — e fechados <em>antes</em> de alguém precisar deles, que é a única
+              hora em que dá para fazer isso com calma.
             </p>
           </div>
           <div class="setor-nota">
-            <span class="pct">55<small>%</small></span>
-            <span class="pill p-grave">Trava o próximo passo</span>
+            <span class="pct">85<small>%</small></span>
+            <span class="pill p-bom">Aprovado</span>
           </div>
         </div>
         <div class="colunas">
           <section class="tem">
             <h5>O que já está de pé</h5>
             <ul>
-              <li>Limite de requisições é compartilhado entre servidores — já está pronto para mais de um.</li>
-              <li>Banco dimensionado com folga e com índices completos.</li>
+              <li><strong>O mapa da van atravessa servidores.</strong> Antes, quem estivesse no servidor A não recebia a posição publicada no B — metade dos responsáveis simplesmente não veria a van.</li>
+              <li><strong>As fotos saíram do disco da máquina</strong> e foram para o banco. Antes, a foto enviada num servidor "sumia" no outro, de forma intermitente.</li>
+              <li>Ao mudar para o banco, a foto passou a herdar o que já existia em volta dele: isolamento por empresa, criptografia da conexão, backup e a mesma regra de retenção.</li>
+              <li>Limite de requisições já era compartilhado entre servidores.</li>
               <li>Nenhuma tela traz lista inteira: tudo paginado, com teto.</li>
-              <li>Sessão não fica presa na memória de um servidor específico.</li>
             </ul>
           </section>
           <section class="falta">
             <h5>O que falta</h5>
             <ul>
-              <li><strong>O mapa ao vivo da van não funciona com dois servidores:</strong> quem estiver no servidor A não recebe a posição publicada no B. Metade dos responsáveis simplesmente não veria a van.</li>
-              <li><strong>Fotos ficam no disco da máquina.</strong> Com dois servidores, metade das fotos "some" de forma intermitente.</li>
-              <li>Saturação já medida: 20 pessoas ao mesmo tempo levam a listagem de 0,5 para 3 segundos.</li>
+              <li>Nunca rodou com dois servidores de verdade: a correção está feita e conferida, o cenário real não foi exercitado.</li>
+              <li>A saturação sob carga precisa ser medida de novo para confirmar o ganho ponta a ponta.</li>
+              <li>Quando a tabela de arquivos passar de alguns GB, a saída passa a ser armazenamento de objetos — o gatilho está escrito.</li>
             </ul>
           </section>
         </div>
-        <p class="destrava"><b>O que sobe essa nota</b> Estes dois itens são <em>pré-requisito</em> do segundo servidor, não melhoria depois dele. Resolver antes de escalar, nunca depois.</p>
+        <p class="destrava"><b>O que sobe essa nota</b> Subir a segunda réplica num ambiente de teste e conferir que o mapa e as fotos aparecem para todo mundo.</p>
       </article>
 
       <article class="setor" id="integracoes">
@@ -1293,6 +1296,62 @@
     </div>
   </section>
 
+  <!-- ================= RODADAS ================= -->
+  <section class="bloco">
+    <h2>O que já foi feito depois deste laudo</h2>
+    <p class="intro">
+      As notas acima já refletem estas duas rodadas. Elas estão separadas porque a diferença
+      entre "vamos melhorar" e "melhorou" é justamente esta lista.
+    </p>
+
+    <div class="mudancas">
+      <div class="mudanca">
+        <span class="marca m-corrigido">Rodada 1</span>
+        <h4>Escalabilidade: 55% &rarr; 85%</h4>
+        <p>
+          Os dois bloqueios do segundo servidor foram fechados. O mapa da van passou a atravessar
+          servidores, e as fotos saíram do disco da máquina para o banco — onde herdam, sem serviço
+          novo, o isolamento entre empresas, o backup e a criptografia que já existiam. Ligado
+          agora, com um servidor só, não muda nada: é exatamente por isso que este era o momento,
+          e não o dia em que alguém duplicar o serviço às pressas.
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-corrigido">Rodada 1</span>
+        <h4>Velocidade: 70% &rarr; 80%</h4>
+        <p>
+          O gargalo medido não era banco nem rede: era o cálculo da senha travando o processo
+          inteiro por quase um segundo a cada login. Com um cronômetro contando durante um login,
+          o sistema atendia 5 pedidos de 51 possíveis; agora atende 62 de 97. A tentação, quando o
+          número incomodar de novo, será enfraquecer a senha — e há uma trava automática para
+          impedir exatamente isso.
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-corrigido">Rodada 2</span>
+        <h4>Enxergar o que acontece: 72% &rarr; 82%</h4>
+        <p>
+          Os medidores existiam desde sempre e ninguém os lia. Agora há um painel que responde
+          "está no ar, está rápido, e as duas coisas que precisam viver em zero continuam em zero",
+          e oito alertas conferidos contra dado real — dois deles disparando no primeiro evento.
+          Falta o principal: ninguém é avisado ainda. É por isso que o item não passou de "com
+          ressalva".
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-novo">Achado no caminho</span>
+        <h4>Boa parte do trabalho já estava feita</h4>
+        <p>
+          A configuração de coleta e as regras de alerta já existiam no repositório, escritas
+          antes — e melhores do que a primeira versão que escrevi por cima delas. Restaurei as
+          originais e acrescentei só o que faltava: o alerta da trilha de auditoria e o de
+          lentidão por rota. Vale registrar porque a lição se repete: antes de reescrever, olhe
+          o que já está lá.
+        </p>
+      </div>
+    </div>
+  </section>
+
   <!-- ================= RISCOS ================= -->
   <section class="bloco">
     <h2>Riscos assumidos, com prazo</h2>
@@ -1313,9 +1372,9 @@
         </thead>
         <tbody>
           <tr>
-            <td><strong>Mapa ao vivo e fotos não sobrevivem ao segundo servidor</strong></td>
-            <td>Resolver de verdade exige serviço novo para um problema que ainda não existe com um servidor só.<small>Exposição hoje: nenhuma. No dia da duplicação: total, e de forma intermitente e difícil de diagnosticar.</small></td>
-            <td class="prazo">10/03/2027<small>ou no dia em que a segunda máquina for cogitada</small></td>
+            <td><strong><s>Mapa ao vivo e fotos não sobrevivem ao segundo servidor</s></strong><small>Resolvido na rodada 1 — os dois lados.</small></td>
+            <td>Deixou de ser risco: o mapa atravessa servidores pelo cache compartilhado, e as fotos foram para o banco.<small>Fica um gatilho escrito: quando a tabela de arquivos passar de alguns GB, a saída passa a ser armazenamento de objetos.</small></td>
+            <td class="prazo">resolvido</td>
           </tr>
           <tr>
             <td><strong>Nada sai do sistema: e-mail, cobrança, WhatsApp</strong></td>
@@ -1328,8 +1387,8 @@
             <td class="prazo">10/03/2027</td>
           </tr>
           <tr>
-            <td><strong>Entrar leva 0,9 segundo</strong></td>
-            <td>É o custo proposital de embaralhar a senha com força.<small>Uma frota faz dezenas de logins por dia, não milhares. Incomoda; não machuca.</small></td>
+            <td><strong>Entrar leva 0,9 segundo</strong><small>Deixou de travar o resto do sistema na rodada 1.</small></td>
+            <td>É o custo proposital de embaralhar a senha com força, e ele continua igual — o que mudou foi sair da fila principal.<small>Falta repetir a medição de carga para confirmar o ganho ponta a ponta.</small></td>
             <td class="prazo">10/03/2027</td>
           </tr>
           <tr>
@@ -1367,7 +1426,7 @@
         <ul>
           <li>Inspecionar o servidor de destino: firewall, portas, certificado na borda, DNS, vizinhos de máquina. É o único item que hoje limita a nota de segurança e a de infraestrutura ao mesmo tempo.</li>
           <li>Contratar envio de e-mail. Resolve convite e recuperação de senha de uma vez.</li>
-          <li>Montar um painel e três alertas: erro acima do normal, vazamento entre empresas, falha de auditoria.</li>
+          <li><s>Montar um painel e alertas</s> — <strong>feito</strong>. Falta apontá-los para onde a pessoa de plantão olha: alerta que ninguém recebe é painel que alguém precisa lembrar de abrir.</li>
           <li>Nomear o encarregado de dados e publicar o canal do titular — exigência de lei.</li>
         </ul>
       </div>
@@ -1387,8 +1446,8 @@
         <span class="quando">Antes de atender muitas frotas</span>
         <h3>Aguentar o crescimento</h3>
         <ul>
-          <li>Mapa ao vivo funcionando entre servidores e fotos fora do disco local. <strong>Pré-requisito do segundo servidor</strong>, não melhoria depois dele.</li>
-          <li>Tirar o cálculo de senha da fila principal, que é o que hoje faz a listagem cair de 0,5 para 3 segundos com 20 pessoas.</li>
+          <li><s>Mapa ao vivo entre servidores e fotos fora do disco local</s> — <strong>feito</strong>. Falta exercitar com dois servidores de verdade.</li>
+          <li><s>Tirar o cálculo de senha da fila principal</s> — <strong>feito</strong>. Falta repetir a medição de carga para confirmar o ganho.</li>
           <li>Criar o conceito de rota — destrava a tela do motorista, o acompanhamento do responsável e o custo por rota.</li>
           <li>Migrar as datas para guardar fuso horário, em janela declarada.</li>
         </ul>
