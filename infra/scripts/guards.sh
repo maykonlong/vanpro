@@ -210,9 +210,57 @@ if [ -f "$ROUTES" ]; then
   fi
 fi
 
+# --- 16. SQL cru atravessa o tenant guard ---------------------------------
+# O isolamento por empresa vive numa extensao do Prisma Client. `$queryRaw`,
+# `$executeRaw` e as variantes `Unsafe` NAO passam por ela: o companyId nao e
+# injetado, e a consulta enxerga o banco inteiro. E a mesma classe do defeito
+# que fez o DRE somar o faturamento de todas as empresas.
+#
+# Ha usos legitimos (healthcheck, limpeza de teste), e por isso o guarda nao
+# proibe — EXIGE que a excecao seja escrita. O marcador vai na linha imediatamente
+# acima, com o motivo: assim "isto e seguro porque..." vira uma decisao revisavel
+# no diff, e nao algo que se descobre depois pelo relatorio do cliente errado.
+MARCADOR_SQL="GUARDA: sql-cru-auditado"
+SQL_CRU=$(
+  grep -rnE '\$(query|execute)Raw(Unsafe)?\b' "$API_SRC" 2>/dev/null | sem_comentario |
+    while IFS=: read -r arq linha resto; do
+      ant=$((linha > 1 ? linha - 1 : 1))
+      if ! sed -n "${ant}p" "$arq" | grep -qF "$MARCADOR_SQL"; then
+        echo "$arq:$linha:$resto"
+      fi
+    done
+)
+if [ -n "$SQL_CRU" ]; then
+  echo "$SQL_CRU"
+  falhar "SQL cru sem marcador de aceite" \
+    "escreva na linha ACIMA: \"// $MARCADOR_SQL — <por que esta consulta nao cruza empresas>\""
+else
+  ok "todo SQL cru declara por que e seguro"
+fi
+
+# --- 17. Um router, um lugar ----------------------------------------------
+# O guarda 15 pega prefixo repetido DENTRO da tabela de montagens. Nao pega o
+# router que esta na tabela E tambem e montado com `router.use()` dentro de
+# outro router — foi o que aconteceu com o carimbo de versao, que passou a
+# responder em dois caminhos com o nginx negando so um deles.
+if command -v node >/dev/null 2>&1; then
+  if SAIDA=$(node infra/scripts/audit-double-mount.mjs 2>&1); then
+    ok "$(echo "$SAIDA" | tail -1 | sed 's/^ok *//')"
+  else
+    echo "$SAIDA"
+    falhar "router montado em mais de um lugar" "escolha um ponto de montagem"
+  fi
+else
+  falhar "node indisponivel — montagem dupla nao verificada"     "sem medicao nao ha aprovacao"
+fi
+
 echo
 if [ "$FALHAS" -gt 0 ]; then
   printf '\033[31m%d guarda(s) falharam.\033[0m\n' "$FALHAS"
   exit 1
 fi
-printf '\033[32mTodos os %s guardas passaram.\033[0m\n' "15"
+# Contado, e nao digitado: este numero ja divergiu duas vezes ao acrescentar
+# guarda, e um relatorio que erra a propria contagem ensina a equipe a nao
+# acreditar nele.
+TOTAL=$(grep -cE '^# --- [0-9]+\.' "$0")
+printf '\033[32mTodos os %s guardas passaram.\033[0m\n' "$TOTAL"

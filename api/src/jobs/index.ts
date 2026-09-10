@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { runUnscoped } from '../lib/request-context';
 import { logger } from '../lib/logger';
 import { audit } from '../lib/audit';
+import { umaRodadaPorVez } from '../lib/uma-rodada-por-vez';
 
 /**
  * Rotinas agendadas.
@@ -76,16 +77,34 @@ async function purgeExpiredCredentials(): Promise<void> {
 }
 
 /** Executa protegendo o agendador: excecao dentro do job nao pode matar o processo. */
-function guarded(name: string, fn: () => Promise<void>) {
+function guarded(name: string, fn: () => Promise<unknown>) {
   return () => {
     void fn().catch((err) => logger.error({ err, job: name }, 'job falhou'));
   };
 }
 
+/**
+ * As versoes que o agendador realmente chama.
+ *
+ * `guarded` impede que a excecao mate o processo, mas nao impede SOBREPOSICAO:
+ * o node-cron dispara no horario, tenha a rodada anterior terminado ou nao. Uma
+ * purga LGPD que passe das 24h numa base grande poe dois `deleteMany` da mesma
+ * janela disputando as mesmas linhas.
+ *
+ * As travas ficam no escopo do modulo, e nao dentro de `startJobs`: criadas la,
+ * um `startJobs` chamado duas vezes sem `stopJobs` produziria duas travas
+ * independentes — ou seja, nenhuma trava.
+ */
+const exclusivos = {
+  trials: umaRodadaPorVez(suspendExpiredTrials),
+  overdue: umaRodadaPorVez(markOverdueInvoices),
+  lgpdPurge: umaRodadaPorVez(purgeExpiredCredentials),
+} as const;
+
 export function startJobs(): void {
-  tasks.push(cron.schedule('7 * * * *', guarded('trials', suspendExpiredTrials), { timezone: TZ }));
-  tasks.push(cron.schedule('17 3 * * *', guarded('overdue', markOverdueInvoices), { timezone: TZ }));
-  tasks.push(cron.schedule('37 4 * * *', guarded('lgpd-purge', purgeExpiredCredentials), { timezone: TZ }));
+  tasks.push(cron.schedule('7 * * * *', guarded('trials', exclusivos.trials), { timezone: TZ }));
+  tasks.push(cron.schedule('17 3 * * *', guarded('overdue', exclusivos.overdue), { timezone: TZ }));
+  tasks.push(cron.schedule('37 4 * * *', guarded('lgpd-purge', exclusivos.lgpdPurge), { timezone: TZ }));
   logger.info({ jobs: tasks.length }, 'rotinas agendadas ativas');
 }
 
@@ -96,3 +115,6 @@ export function stopJobs(): void {
 
 /** Exportado para os testes exercitarem a regra sem esperar o relogio. */
 export const __jobs = { suspendExpiredTrials, markOverdueInvoices, purgeExpiredCredentials };
+
+/** As mesmas rotinas com a trava de reentrancia — o que o agendador chama. */
+export const __jobsExclusivos = exclusivos;

@@ -19,6 +19,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
+import { CompanySwitcher } from '../components/CompanySwitcher';
 import type { PermissionFlag, Role } from '../lib/types';
 import { label } from '../lib/format';
 
@@ -78,7 +79,7 @@ const NAV: NavItem[] = [
 ];
 
 export function AppLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, companyEpoch, switchingCompany } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -121,7 +122,8 @@ export function AppLayout() {
 
           <span className="text-base font-semibold text-brand-400">VanPro</span>
 
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            <CompanySwitcher />
             <div className="hidden text-right sm:block">
               <p className="text-sm font-medium text-ink-50">{user?.name}</p>
               <p className="text-xs text-ink-400">
@@ -160,9 +162,38 @@ export function AppLayout() {
         </nav>
 
         <main id="conteudo" className={`min-w-0 flex-1 ${menuOpen ? 'hidden lg:block' : 'block'}`}>
-          <Outlet />
+          {/*
+            A chave muda a cada troca de frota e desmonta a tela inteira. Sem
+            isso, a lista carregada para a empresa anterior continuaria em tela
+            depois da troca — dado de outra frota com aparência de atual.
+          */}
+          <div key={companyEpoch}>
+            <Outlet />
+          </div>
         </main>
       </div>
+
+      {/*
+        Troca de frota bloqueia a interface: não é filtro, é mudança de contexto
+        inteira. Clicar em qualquer coisa no meio dela agiria sobre a empresa
+        que está deixando de ser a ativa.
+      */}
+      {switchingCompany ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 p-4 backdrop-blur-sm"
+          role="alertdialog"
+          aria-busy="true"
+          aria-live="assertive"
+          aria-label="Trocando de frota"
+        >
+          <div className="rounded-xl border border-ink-700 bg-ink-900 px-6 py-5 text-center">
+            <p className="text-sm font-semibold text-ink-50">Trocando de frota…</p>
+            <p className="mt-1 text-sm text-ink-400">
+              Abrindo uma sessão nova e recarregando os dados da empresa escolhida.
+            </p>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

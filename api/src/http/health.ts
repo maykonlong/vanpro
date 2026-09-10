@@ -26,6 +26,7 @@ router.get('/ready', async (_req, res) => {
   const checks: Record<string, 'ok' | 'down'> = {};
 
   try {
+    // GUARDA: sql-cru-auditado — `SELECT 1` nao le tabela nenhuma; nao ha dado de empresa envolvido.
     await runUnscoped('healthcheck', () => prisma.$queryRaw`SELECT 1`);
     checks.database = 'ok';
   } catch {
@@ -80,4 +81,16 @@ router.get('/metrics', (_req, res) => {
   res.send(renderizarPrometheus());
 });
 
+/**
+ * O carimbo de versao NAO mora aqui.
+ *
+ * Ele chegou a ser montado neste router e, ao mesmo tempo, em `routes.ts` sob
+ * `/interno` — a mesma rota respondendo em dois caminhos, com o nginx negando
+ * so um deles. E a classe exata de defeito que originou este projeto (o router
+ * de alunos montado duas vezes, publico no primeiro match).
+ *
+ * Ficou uma montagem so, em `/interno`, negada por prefixo no nginx: dizer qual
+ * imagem esta de pe ajuda a operacao e ajuda igualmente quem procura uma versao
+ * com falha conhecida.
+ */
 export default router;

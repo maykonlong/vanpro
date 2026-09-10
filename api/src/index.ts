@@ -18,6 +18,7 @@ process.on('unhandledRejection', (reason) => {
 async function main() {
   // Falha aqui e falha de boot, nao de request: melhor nao subir do que subir
   // sem banco e devolver 500 para todo mundo ate alguem perceber.
+  // GUARDA: sql-cru-auditado — `SELECT 1` nao le tabela nenhuma; roda antes de existir requisicao, e nao ha tenant a isolar.
   await runUnscoped('boot-db-check', () => prisma.$queryRaw`SELECT 1`);
   logger.info('banco de dados acessível');
 

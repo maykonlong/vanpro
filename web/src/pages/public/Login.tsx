@@ -1,16 +1,25 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { KeyRound } from 'lucide-react';
+import { Building2, KeyRound } from 'lucide-react';
 
 import { AuthShell } from './AuthShell';
 import { Button, InlineError, TextInput } from '../../components/ui';
 import { useAuth } from '../../context/AuthContext';
+import type { LoginResult } from '../../context/AuthContext';
 import { useAction } from '../../hooks/useResource';
+import { label } from '../../lib/format';
 import { homeForRole } from '../../lib/routes';
+import type { CompanyMembership } from '../../lib/types';
+
+/** Passo de escolha de frota: a credencial já passou, falta dizer onde operar. */
+interface EscolhaDeEmpresa {
+  selectionToken: string;
+  companies: CompanyMembership[];
+}
 
 export function Login() {
-  const { login, loginWithTwoFactor, loginWithPasskey, status, user } = useAuth();
+  const { login, loginWithTwoFactor, loginWithPasskey, selectCompany, status, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const action = useAction();
@@ -19,6 +28,8 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [code, setCode] = useState('');
+  const [escolha, setEscolha] = useState<EscolhaDeEmpresa | null>(null);
+  const [empresaId, setEmpresaId] = useState('');
 
   if (status === 'authenticated' && user) {
     const from = (location.state as { from?: string } | null)?.from;
@@ -26,6 +37,20 @@ export function Login() {
   }
 
   const goHome = () => navigate('/app', { replace: true });
+
+  /**
+   * Desfecho comum às três formas de entrar. Com mais de um vínculo a API não
+   * emite sessão: mostra o passo de escolha em vez de navegar.
+   */
+  const seguirApos = (result: LoginResult): void => {
+    if (result.requiresCompanySelection && result.selectionToken) {
+      setEscolha({ selectionToken: result.selectionToken, companies: result.companies ?? [] });
+      // Sugestão pré-selecionada (última frota usada), nunca escolha automática.
+      setEmpresaId(result.suggestedCompanyId ?? '');
+      return;
+    }
+    goHome();
+  };
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -35,26 +60,92 @@ export function Login() {
       setChallengeId(result.challengeId);
       return;
     }
-    goHome();
+    seguirApos(result);
   };
 
   const onSubmitCode = async (event: FormEvent) => {
     event.preventDefault();
     if (!challengeId) return;
+    const result = await action.run(() => loginWithTwoFactor(challengeId, code));
+    if (result) seguirApos(result);
+  };
+
+  const onPasskey = async () => {
+    const result = await action.run(() => loginWithPasskey());
+    if (result) seguirApos(result);
+  };
+
+  const onEscolherEmpresa = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!escolha || !empresaId) return;
     const done = await action.run(async () => {
-      await loginWithTwoFactor(challengeId, code);
+      await selectCompany(escolha.selectionToken, empresaId);
       return true;
     });
     if (done) goHome();
   };
 
-  const onPasskey = async () => {
-    const done = await action.run(async () => {
-      await loginWithPasskey();
-      return true;
-    });
-    if (done) goHome();
+  const voltarParaLogin = () => {
+    setEscolha(null);
+    setEmpresaId('');
+    setChallengeId(null);
+    setCode('');
+    setPassword('');
+    action.reset();
   };
+
+  if (escolha) {
+    return (
+      <AuthShell
+        title="Em qual frota você vai operar?"
+        subtitle="Você tem vínculo ativo com mais de uma empresa. A frota escolhida define tudo que você vai ver e registrar nesta sessão — e você pode trocá-la depois, no cabeçalho."
+      >
+        <form className="flex flex-col gap-4" onSubmit={onEscolherEmpresa} noValidate>
+          <InlineError message={action.error} />
+
+          <fieldset className="flex flex-col gap-2">
+            <legend className="sr-only">Escolha a frota</legend>
+            {escolha.companies.map((empresa) => (
+              <label
+                key={empresa.companyId}
+                className={`flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
+                  empresaId === empresa.companyId
+                    ? 'border-brand-500 bg-ink-800'
+                    : 'border-ink-700 hover:bg-ink-800'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="empresa"
+                  value={empresa.companyId}
+                  checked={empresaId === empresa.companyId}
+                  onChange={() => setEmpresaId(empresa.companyId)}
+                  className="h-5 w-5 shrink-0 accent-brand-500"
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-ink-50">
+                    {empresa.companyName}
+                  </span>
+                  <span className="block text-xs text-ink-400">
+                    Seu papel aqui: {label.role(empresa.role)}
+                    {empresa.status === 'ARCHIVED' ? ' · vínculo arquivado (só leitura)' : ''}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+
+          <Button type="submit" loading={action.pending} disabled={!empresaId}>
+            <Building2 aria-hidden="true" size={18} />
+            Entrar nesta frota
+          </Button>
+          <Button type="button" variant="ghost" onClick={voltarParaLogin}>
+            Voltar para o login
+          </Button>
+        </form>
+      </AuthShell>
+    );
+  }
 
   if (challengeId) {
     return (

@@ -5,6 +5,7 @@ import { Errors, AppError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { currentTenantId } from '../../lib/request-context';
 import { fromCents } from '../../lib/money';
+import { exigirModoSeguro } from './trava-cobranca';
 
 /**
  * Integracao com o Asaas (cobranca Pix).
@@ -18,6 +19,23 @@ import { fromCents } from '../../lib/money';
  *     documento do responsavel real do aluno; o `companyId` sai do contexto de
  *     tenant ou do proprio Student carregado, jamais de um literal.
  */
+
+/**
+ * Primeira coisa que este modulo faz, e de proposito.
+ *
+ * Ausencia de credencial ja tinha resposta (503 FEATURE_DISABLED). O terceiro
+ * estado — credencial apontando para o endpoint de PRODUCAO num ambiente que
+ * nao e producao — nao tinha nenhuma, e e justamente o que cobra uma pessoa de
+ * verdade a partir da maquina de um desenvolvedor. Lanca no import: subir e so
+ * avisar seria descobrir o erro pelo extrato do cliente.
+ */
+const modoCobranca = exigirModoSeguro();
+if (modoCobranca) {
+  logger.info(
+    { modo: modoCobranca.modo, dinheiroReal: modoCobranca.real },
+    'trava de cobranca liberou o modulo financeiro',
+  );
+}
 
 const TIMEOUT_MS = 10_000;
 

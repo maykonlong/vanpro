@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import dotenv from 'dotenv';
-import { beforeAll, afterAll, beforeEach } from 'vitest';
+import { afterAll, beforeEach } from 'vitest';
 
 // Carrega .env.test ANTES de qualquer import que leia `env` — o config valida
 // no momento do import e derrubaria o processo com a mensagem errada.
@@ -59,20 +59,39 @@ const TABLES = [
   'WebhookEvent',
 ];
 
-beforeAll(() => {
-  // Aplica as migrations versionadas, nao `db push`: o teste tem de exercitar
-  // o mesmo caminho que producao vai percorrer.
+/**
+ * Migrar so quando algum teste de integracao for de fato rodar.
+ *
+ * Antes disto o `beforeAll` migrava sempre, e por isso `vitest run tests/unit`
+ * exigia Postgres de pe para exercitar teste que nao toca no banco: com o
+ * container parado a suite falhava em `P1001` sem executar um caso sequer.
+ * Teste de unidade que so roda com a infraestrutura completa e teste que
+ * ninguem roda antes de commitar.
+ *
+ * Fica no `beforeEach` (e nao no `beforeAll`) porque e ali que se sabe QUAL
+ * arquivo esta rodando. A flag garante uma migracao por processo — e
+ * `fileParallelism: false` garante que nao ha duas correndo juntas.
+ */
+let migrado = false;
+
+function migrarUmaVez(): void {
+  if (migrado) return;
+  migrado = true;
+  // Migrations versionadas, nao `db push`: o teste tem de exercitar o mesmo
+  // caminho que producao vai percorrer.
   execSync('npx prisma migrate deploy', {
     cwd: path.resolve(__dirname, '..'),
     stdio: 'pipe',
     env: process.env,
   });
-});
+}
 
 beforeEach(async (ctx) => {
   // Truncar so no que fala com o banco. Teste de unidade pagando uma limpeza de
   // 24 tabelas por caso transformou a suite em 158 segundos de espera.
   if (!ctx.task.file.filepath.includes('integration')) return;
+
+  migrarUmaVez();
 
   await runUnscoped('test-truncate', () =>
     prisma.$transaction(TABLES.map((t) => prisma.$executeRawUnsafe(`DELETE FROM "${t}";`))),

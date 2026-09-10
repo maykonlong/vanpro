@@ -8,23 +8,47 @@ import {
 } from '@simplewebauthn/browser';
 
 import { api, onApiEvent, setCsrfToken } from '../lib/api';
-import type { Me, PermissionFlag, Role } from '../lib/types';
+import type { CompanyMembership, Me, PermissionFlag, Role } from '../lib/types';
 
 type Status = 'loading' | 'authenticated' | 'anonymous';
 
-interface LoginResult {
+export interface LoginResult {
   /** Login com 2FA para na primeira etapa e devolve o desafio. */
   requires2FA?: boolean;
   challengeId?: string;
+  /**
+   * Mais de um vínculo ativo: a API confere a credencial mas NÃO emite sessão
+   * até a pessoa dizer em qual frota vai operar.
+   */
+  requiresCompanySelection?: boolean;
+  selectionToken?: string;
+  companies?: CompanyMembership[];
+  /** Última frota usada. Sugestão pré-selecionada, nunca escolha automática. */
+  suggestedCompanyId?: string | null;
 }
 
 interface AuthValue {
   user: Me | null;
   status: Status;
   suspended: boolean;
+  /** Frotas em que a pessoa pode entrar hoje. Vazio enquanto anônima. */
+  companies: CompanyMembership[];
+  /** Frota ativa da sessão. */
+  currentCompanyId: string | null;
+  /** Verdadeiro enquanto a troca de frota está em andamento. */
+  switchingCompany: boolean;
+  /**
+   * Muda a cada troca de frota. Telas montadas a partir dele são refeitas do
+   * zero — o dado em tela passou a ser de outra empresa.
+   */
+  companyEpoch: number;
   login: (email: string, password: string) => Promise<LoginResult>;
-  loginWithTwoFactor: (challengeId: string, code: string) => Promise<void>;
-  loginWithPasskey: () => Promise<void>;
+  loginWithTwoFactor: (challengeId: string, code: string) => Promise<LoginResult>;
+  loginWithPasskey: () => Promise<LoginResult>;
+  /** Conclui o login escolhendo a frota. */
+  selectCompany: (selectionToken: string, companyId: string) => Promise<void>;
+  /** Troca a frota ativa sem novo login. */
+  switchCompany: (companyId: string) => Promise<void>;
   registerPasskey: () => Promise<void>;
   logout: () => Promise<void>;
   reload: () => Promise<void>;
@@ -42,6 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Me | null>(null);
   const [status, setStatus] = useState<Status>('loading');
   const [suspended, setSuspended] = useState(false);
+  const [switchingCompany, setSwitchingCompany] = useState(false);
+  const [companyEpoch, setCompanyEpoch] = useState(0);
   const booted = useRef(false);
 
   const loadMe = useCallback(async () => {
@@ -81,6 +107,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  /**
+   * Desfecho comum de senha, 2FA e passkey.
+   *
+   * Quando a API pede escolha de empresa não há cookie de sessão nenhum ainda:
+   * devolve o passo pendente para a tela e não toca no estado de autenticação.
+   */
+  const finishLogin = useCallback(
+    async (data: SessionResponse & LoginResult): Promise<LoginResult> => {
+      if (data.requiresCompanySelection) {
+        return {
+          requiresCompanySelection: true,
+          selectionToken: data.selectionToken,
+          companies: data.companies ?? [],
+          suggestedCompanyId: data.suggestedCompanyId ?? null,
+        };
+      }
+      setCsrfToken(data.csrfToken);
+      // `/auth/login` devolve so o usuario publico; permissoes e empresa vem do
+      // `/auth/me`, que le a SESSAO — inclusive qual frota ficou ativa.
+      await loadMe();
+      return {};
+    },
+    [loadMe],
+  );
+
   const login = useCallback(
     async (email: string, password: string): Promise<LoginResult> => {
       const data = await api.post<SessionResponse & LoginResult>('/auth/login', {
@@ -88,22 +139,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
       });
       if (data.requires2FA) return { requires2FA: true, challengeId: data.challengeId };
-      setCsrfToken(data.csrfToken);
-      // `/auth/login` devolve so o usuario publico; permissoes e empresa vem do
-      // `/auth/me`, que le o vinculo atual no banco.
-      await loadMe();
-      return {};
+      return finishLogin(data);
     },
-    [loadMe],
+    [finishLogin],
   );
 
   const loginWithTwoFactor = useCallback(
     async (challengeId: string, code: string) => {
-      const data = await api.post<SessionResponse>('/auth/2fa/login', { challengeId, code });
-      setCsrfToken(data.csrfToken);
-      await loadMe();
+      const data = await api.post<SessionResponse & LoginResult>('/auth/2fa/login', {
+        challengeId,
+        code,
+      });
+      return finishLogin(data);
     },
-    [loadMe],
+    [finishLogin],
   );
 
   const loginWithPasskey = useCallback(async () => {
@@ -112,13 +161,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       challengeId: string;
     }>('/auth/webauthn/login/options');
     const response = await startAuthentication({ optionsJSON: challenge.options });
-    const data = await api.post<SessionResponse>('/auth/webauthn/login/verify', {
+    const data = await api.post<SessionResponse & LoginResult>('/auth/webauthn/login/verify', {
       challengeId: challenge.challengeId,
       response,
     });
-    setCsrfToken(data.csrfToken);
-    await loadMe();
-  }, [loadMe]);
+    return finishLogin(data);
+  }, [finishLogin]);
+
+  /** Segunda etapa do login de quem atende mais de uma frota. */
+  const selectCompany = useCallback(
+    async (selectionToken: string, companyId: string) => {
+      const data = await api.post<SessionResponse>('/auth/select-company', {
+        selectionToken,
+        companyId,
+      });
+      setCsrfToken(data.csrfToken);
+      await loadMe();
+    },
+    [loadMe],
+  );
+
+  /**
+   * Troca a frota ativa sem novo login.
+   *
+   * A API revoga a sessão anterior e abre outra, então o `csrfToken` que volta
+   * aqui é de uma sessão NOVA. Adotá-lo na mesma linha não é detalhe: seguir
+   * mandando o antigo faria toda escrita seguinte responder 403.
+   */
+  const switchCompany = useCallback(
+    async (companyId: string) => {
+      setSwitchingCompany(true);
+      try {
+        const data = await api.post<{ csrfToken: string; companyId: string }>(
+          '/auth/switch-company',
+          { companyId },
+        );
+        setCsrfToken(data.csrfToken);
+        // Papel, permissões e empresa mudam junto: relê tudo do servidor em vez
+        // de remendar o estado local com o que a resposta trouxe.
+        await loadMe();
+        setCompanyEpoch((n) => n + 1);
+      } finally {
+        setSwitchingCompany(false);
+      }
+    },
+    [loadMe],
+  );
 
   const registerPasskey = useCallback(async () => {
     const options = await api.post<PublicKeyCredentialCreationOptionsJSON>(
@@ -155,9 +243,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       status,
       suspended,
+      companies: user?.companies ?? [],
+      currentCompanyId: user?.tenantId ?? null,
+      switchingCompany,
+      companyEpoch,
       login,
       loginWithTwoFactor,
       loginWithPasskey,
+      selectCompany,
+      switchCompany,
       registerPasskey,
       logout,
       reload,
@@ -165,7 +259,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Esconder menu por permissao e UX. A negacao que vale e a do servidor.
       hasPermission: (flag: PermissionFlag) => Boolean(user?.permissions?.[flag]),
     }),
-    [user, status, suspended, login, loginWithTwoFactor, loginWithPasskey, registerPasskey, logout, reload],
+    [
+      user,
+      status,
+      suspended,
+      switchingCompany,
+      companyEpoch,
+      login,
+      loginWithTwoFactor,
+      loginWithPasskey,
+      selectCompany,
+      switchCompany,
+      registerPasskey,
+      logout,
+      reload,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

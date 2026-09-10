@@ -37,9 +37,12 @@ function Plano() {
 
   return (
     <Card>
-      <h2 className="text-base font-semibold text-ink-50">Plano e uso</h2>
+      <h2 className="text-base font-semibold text-ink-50">Plano e uso da frota ativa</h2>
       <p className="mt-1 text-sm text-ink-400">
-        {company.name} · plano {plan.plan} · situação {label.subscriptionStatus(plan.status)}
+        <span data-testid="empresa-configuracoes" className="font-medium text-ink-200">
+          {company.name}
+        </span>{' '}
+        · plano {plan.plan} · situação {label.subscriptionStatus(plan.status)}
         {plan.trialEndsAt ? ` · teste até ${formatDateTime(plan.trialEndsAt)}` : ''}
       </p>
 
@@ -418,10 +421,11 @@ function TrocarSenha() {
 }
 
 export function Settings() {
-  const { user, hasRole } = useAuth();
+  const { user, hasRole, companies } = useAuth();
   // `/company/me` e restrito aos papeis de operacao; responsavel e super admin
   // nao tem empresa vinculada nessa rota.
   const temEmpresa = hasRole('OWNER', 'MANAGER', 'DRIVER', 'ASSISTANT');
+  const frotaAtiva = user?.company?.name ?? null;
 
   return (
     <div>
@@ -429,6 +433,17 @@ export function Settings() {
         title="Configurações"
         description={`${user?.name ?? ''} · ${user?.email ?? ''}`}
       />
+
+      {frotaAtiva ? (
+        <p className="mb-4 rounded-lg border border-ink-800 bg-ink-900 px-3 py-2 text-sm text-ink-300">
+          Os dados de empresa desta página são da <strong className="text-ink-50">frota ativa</strong>
+          {': '}
+          <strong className="text-ink-50">{frotaAtiva}</strong>
+          {companies.length > 1
+            ? ' · você atende mais de uma frota; troque no seletor do cabeçalho.'
+            : ''}
+        </p>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {temEmpresa ? <Plano /> : null}

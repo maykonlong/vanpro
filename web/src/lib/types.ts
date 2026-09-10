@@ -36,14 +36,34 @@ export interface CompanySummary {
   trialEndsAt: string | null;
 }
 
+/**
+ * Vinculo ativo da pessoa com uma frota.
+ *
+ * `role` e o papel DENTRO daquela empresa, e nao um papel global: a mesma
+ * pessoa pode ser proprietaria de uma frota e motorista em outra.
+ */
+export interface CompanyMembership {
+  companyId: string;
+  companyName: string;
+  role: Role;
+  contractType: 'FULL_TIME' | 'FREELANCE';
+  status: 'ACTIVE' | 'ARCHIVED';
+}
+
 export interface Me {
   id: string;
   name: string;
   email: string;
+  /** Papel na empresa ATIVA — vem da sessão, não do cadastro do usuário. */
   role: Role;
+  /** Empresa ativa da sessão. */
   tenantId: string | null;
   permissions: Permissions;
+  /** Vínculo do usuário com a empresa ativa: ACTIVE ou ARCHIVED (só leitura). */
+  contractStatus: string;
   company: CompanySummary | null;
+  /** Todas as frotas em que a pessoa pode entrar hoje. */
+  companies: CompanyMembership[];
 }
 
 export type Shift = 'MORNING' | 'AFTERNOON' | 'FULL';

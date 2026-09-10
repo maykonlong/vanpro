@@ -33,6 +33,15 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# Qual commit esta nesta imagem.
+#
+# `desconhecida` e o default de proposito: build sem o argumento admite que nao
+# sabe, em vez de herdar um numero de outro build. Este valor e um rotulo
+# DIGITADO — util, mas capaz de mentir; o carimbo derivado do conteudo, mais
+# abaixo, e o que nao mente.
+ARG GIT_SHA=nao-carimbada
+ENV VANPRO_GIT_SHA=$GIT_SHA
+
 # dumb-init faz PID 1 repassar SIGTERM: sem ele o Node nao recebe o sinal e o
 # encerramento gracioso nunca roda — deploy corta requisicao em voo.
 RUN apk add --no-cache dumb-init
@@ -44,7 +53,29 @@ RUN addgroup -g 10001 -S vanpro && adduser -u 10001 -S vanpro -G vanpro
 COPY --from=builder --chown=vanpro:vanpro /app/node_modules ./node_modules
 COPY --from=builder --chown=vanpro:vanpro /app/dist ./dist
 COPY --from=builder --chown=vanpro:vanpro /app/prisma ./prisma
-COPY --chown=vanpro:vanpro package.json ./
+COPY --chown=vanpro:vanpro package.json package-lock.json conteudo-carimbado.txt ./
+
+# O carimbo que NAO pode mentir: soma do conteudo que a imagem realmente
+# carrega, calculada aqui dentro.
+#
+# No projeto irmao o SHA digitado ja mentiu — o health anunciava um commit
+# enquanto a imagem carregava outro, e dezessete verificacoes passaram contra a
+# imagem errada. `docker ps` dizia "healthy" e o app respondia certo em tudo o
+# que ele de fato tinha. Nada no sistema podia contradizer o operador.
+#
+# A lista some daqui de proposito: ela mora em conteudo-carimbado.txt, um lugar
+# so, para a soma da imagem e a soma do disco nunca divergirem por descuido.
+# Somam-se os DIGESTS, nunca os caminhos.
+RUN set -eu; \
+    cd /app; \
+    find $(grep -vE '^[[:space:]]*(#|$)' conteudo-carimbado.txt) -type f \
+      | LC_ALL=C sort \
+      | xargs sha256sum \
+      | awk '{print $1}' \
+      | sha256sum \
+      | cut -c1-16 > /app/.versao-conteudo; \
+    chown vanpro:vanpro /app/.versao-conteudo; \
+    test -s /app/.versao-conteudo
 
 # O filesystem sobe read-only no compose; uploads vao para volume montado aqui.
 RUN mkdir -p /app/storage/uploads && chown -R vanpro:vanpro /app/storage

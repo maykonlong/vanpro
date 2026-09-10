@@ -1,6 +1,7 @@
 import { Router, type RequestHandler } from 'express';
 
 import healthRouter from './health';
+import versionRouter from './version';
 import { authenticate } from './middlewares/authenticate';
 import { webhookLimiter } from '../security/rate-limit';
 
@@ -48,6 +49,15 @@ export interface Montagem {
 export const MONTAGENS: readonly Montagem[] = [
   // --- publicas -----------------------------------------------------------
   { prefixo: '/health', router: healthRouter, publico: true, descricao: 'Sondas de saude e integracoes ligadas' },
+  {
+    // Prefixo proprio, e nao dentro de /health: o carimbo diz exatamente qual
+    // codigo esta respondendo, o que ajuda a operacao e ajuda igualmente quem
+    // esta sondando. Fica na rede interna, negado no nginx como as metricas.
+    prefixo: '/interno',
+    router: versionRouter,
+    publico: true,
+    descricao: 'Carimbo de versao e conteudo da imagem (rede interna)',
+  },
   {
     prefixo: '/auth',
     router: authRouter,

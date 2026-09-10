@@ -1,0 +1,26 @@
+# A lista do carimbo de conteudo — a UNICA copia dela.
+#
+# Quem le este arquivo:
+#   - api/Dockerfile (stage runner), que soma dentro da imagem e grava o
+#     resultado em /app/.versao-conteudo;
+#   - qualquer verificador que rode no disco e queira comparar com o que
+#     GET /api/v1/health/version devolve.
+#
+# Estar num arquivo so e o ponto. No projeto irmao a lista foi escrita duas
+# vezes — uma no Dockerfile, outra no verificador — e um `*.js` de um lado
+# pegava dois arquivos que o outro nao copiava. O verificador acusava
+# divergencia todo dia, sem nunca haver divergencia, ate ninguem mais olhar.
+#
+# Caminhos RELATIVOS a raiz do modulo, e por isso funcionam identicos nos dois
+# lados: dentro da imagem a raiz e /app, no disco e api/.
+#
+# Regra da soma (tem de ser identica nos dois lados):
+#   find <linhas abaixo> -type f | LC_ALL=C sort | xargs sha256sum
+#     | awk '{print $1}' | sha256sum | cut -c1-16
+#
+# Somam-se os DIGESTS, jamais os caminhos: na imagem eles vem com prefixo
+# diferente do disco, e incluir caminho faz os dois lados divergirem sempre.
+
+dist
+prisma
+package-lock.json

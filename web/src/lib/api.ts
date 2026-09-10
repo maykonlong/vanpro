@@ -203,7 +203,15 @@ async function refreshSession(): Promise<boolean> {
   return refreshing;
 }
 
-const NO_RETRY = ['/auth/refresh', '/auth/login', '/auth/2fa/login', '/auth/logout'];
+// `/auth/select-company` entra aqui porque nesse ponto ainda NAO existe cookie
+// de sessao: renovar seria pedir refresh de uma sessao que nunca nasceu.
+const NO_RETRY = [
+  '/auth/refresh',
+  '/auth/login',
+  '/auth/2fa/login',
+  '/auth/select-company',
+  '/auth/logout',
+];
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   let response: Response;
