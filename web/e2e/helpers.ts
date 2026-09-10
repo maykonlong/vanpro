@@ -1,3 +1,4 @@
+import { authenticator } from 'otplib';
 import {
   expect,
   test as base,
@@ -33,6 +34,8 @@ export interface Conta {
   senha: string;
   nome: string;
   empresa: string | null;
+  /** Segredo TOTP, quando a conta exige segundo fator (base32 do seed). */
+  segredo2FA?: string;
 }
 
 /** Senha única do seed de demonstração; sobrescrevível pelo ambiente. */
@@ -44,6 +47,8 @@ export const CONTAS: Record<Papel, Conta> = {
     senha: SENHA,
     nome: 'Administrador da Plataforma',
     empresa: null,
+    // Igual ao `SEGREDO_2FA_DEMO` do seed. Ambiente de demonstração.
+    segredo2FA: process.env.E2E_ADMIN_TOTP ?? 'KRSXG5CTMVRXEZLUGE3TMNZS',
   },
   OWNER: {
     email: 'roberto@transvan.com.br',
@@ -205,11 +210,36 @@ async function autenticar(contexto: BrowserContext, conta: Conta): Promise<void>
       `login de ${conta.email} falhou: ${login.texto.slice(0, 300)}`,
     ).toBeLessThan(400);
 
-    const dados = JSON.parse(login.texto) as {
+    let dados = JSON.parse(login.texto) as {
+      requires2FA?: boolean;
+      challengeId?: string;
       requiresCompanySelection?: boolean;
       selectionToken?: string;
       companies?: Array<{ companyId: string; companyName: string }>;
     };
+
+    /*
+     * Segunda etapa do login.
+     *
+     * O administrador da plataforma nasce com 2FA ativo, porque o console que
+     * suspende frotas exige segundo fator. Antes disto, o caminho de 2FA era o
+     * unico fluxo de autenticacao que a suite nunca percorria de ponta a ponta:
+     * havia teste de unidade da verificacao, e nada exercitando
+     * login → desafio → codigo → sessao.
+     */
+    if (dados.requires2FA) {
+      expect(conta.segredo2FA, `${conta.email} exige 2FA mas a conta de teste não tem segredo`).toBeTruthy();
+      const codigo = authenticator.generate(conta.segredo2FA!);
+      const segunda = await chamar('/api/v1/auth/2fa/login', {
+        challengeId: dados.challengeId,
+        code: codigo,
+      });
+      expect(
+        segunda.status,
+        `segunda etapa de ${conta.email} falhou: ${segunda.texto.slice(0, 300)}`,
+      ).toBeLessThan(400);
+      dados = JSON.parse(segunda.texto);
+    }
 
     if (dados.requiresCompanySelection) {
       const empresa = dados.companies?.[0];

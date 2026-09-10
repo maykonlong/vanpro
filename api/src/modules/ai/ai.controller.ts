@@ -289,15 +289,29 @@ router.post(
       );
     }
 
-    if (existing.channel === 'WHATSAPP' && !features.whatsapp) {
-      throw Errors.featureDisabled('WhatsApp Business');
-    }
-    if (existing.channel !== 'WHATSAPP') {
-      // Instagram e e-mail ainda nao tem provedor ligado. Sem integracao, o
-      // caminho honesto e recusar — nao carimbar PUBLISHED e torcer.
-      logger.warn({ postId: id, channel: existing.channel }, 'canal sem provedor configurado');
-      throw Errors.featureDisabled(`Publicação em ${existing.channel}`);
-    }
+    /*
+     * NENHUM canal publica hoje — e o motivo do WhatsApp e mais grave que o
+     * dos outros dois.
+     *
+     * A versao anterior deixava passar quando `features.whatsapp` era
+     * verdadeiro, e entao marcava PUBLISHED sem NUNCA chamar
+     * `whatsapp.service`. Bastava existir credencial no ambiente para o painel
+     * dizer "veiculada" a respeito de uma mensagem que ninguem enviou — o
+     * defeito exato que o comentario do proprio servico promete impedir.
+     *
+     * E nao era so falta de fiacao: o schema NAO TEM campo de telefone. Nem
+     * `User`, nem `Student`, nem responsavel. Nao existe destinatario para
+     * quem enviar. Ligar o servico sem isso trocaria uma mentira por um erro
+     * de execucao.
+     *
+     * Enquanto nao houver telefone no cadastro (com consentimento e cifrado em
+     * repouso, como o resto do dado pessoal), a resposta honesta e recusar
+     * dizendo o que falta.
+     */
+    logger.warn({ postId: id, channel: existing.channel }, 'publicacao recusada: canal sem destinatario');
+    throw Errors.featureDisabled(
+      `Publicação em ${existing.channel} — não há canal de envio configurado neste ambiente`,
+    );
 
     const post = await prisma.aIPost.update({ where: { id }, data: { status: 'PUBLISHED' } });
 

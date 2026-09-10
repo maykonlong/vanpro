@@ -93,6 +93,23 @@ services:
       - work_mem=8MB
       - -c
       - log_min_duration_statement=500
+      # ─── Nenhuma consulta segura o banco para sempre ───────────────────
+      #
+      # O default e ZERO, que significa "sem limite" — e o silencio aqui vale
+      # pelo valor perigoso. Uma consulta que degenerou (falta de indice,
+      # parametro inesperado, junção nova) prende a conexao, o pool esvazia e o
+      # produto inteiro para por causa de uma tela.
+      #
+      # 30s e folgado para tudo que este produto faz de verdade: o DRE de seis
+      # meses da maior frota responde em milissegundos. Se algo passar disso,
+      # e defeito — e a resposta certa e cortar, com erro visivel, em vez de
+      # arrastar o banco junto.
+      - -c
+      - statement_timeout=30000
+      # Transacao aberta e esquecida segura tuplas mortas e trava o autovacuum;
+      # e o caminho mais comum para o disco encher sem ninguem entender por que.
+      - -c
+      - idle_in_transaction_session_timeout=60000
       # Conexao rejeitada por pg_hba precisa aparecer no log, senao "a API nao
       # conecta" vira uma tarde de adivinhacao.
       - -c

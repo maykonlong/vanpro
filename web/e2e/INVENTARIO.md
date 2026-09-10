@@ -22,8 +22,9 @@ existem depois de uma ação destrutiva ou irreversível, e integrações sem
 credencial neste ambiente.
 
 Cinco defeitos de produto foram encontrados no caminho (D-1 a D-5, ao fim deste
-arquivo). Os testes que os registram **falham de propósito** e não foram
-ajustados para passar.
+arquivo). **Todos os cinco estão corrigidos**, e os testes que os registram
+passam — a seção continua existindo porque o defeito e a razão dele são mais
+úteis que o registro de que sumiu.
 
 ---
 
@@ -118,7 +119,7 @@ ajustados para passar.
 | 50 | Links da barra inferior (celular) | ✅ | `11-acessibilidade` |
 | 51 | Botão "Mais" (celular) | ✅ | `11-acessibilidade` — abre diálogo |
 | 52 | Links dentro do "Mais" | ✅ | `11-acessibilidade` — navega e FECHA a folha |
-| 53 | Link "Ver como regularizar" (faixa de suspensão) | ❌ | Nenhuma empresa do seed está suspensa. Ver **NÃO VERIFICADO (N-1)**. |
+| 53 | Link "Ver como regularizar" (faixa de suspensão) | ✅ | `10-negativas` — a frota "Vai e Vem" nasce suspensa no seed. |
 | 54 | Sobreposição "Trocando de frota…" | ✅ | `09-plataforma` (durante o `switch-company`) |
 
 ### `components/CompanySwitcher.tsx` (2)
@@ -359,7 +360,10 @@ Observação: **não existe botão de check-in nesta tela**. O check-in mora em
 
 ## Defeitos de produto encontrados
 
-Os testes abaixo **falham de propósito** e não foram ajustados para passar.
+Os cinco foram encontrados por esta suíte, **e todos estão corrigidos**. O texto
+descreve o defeito como ele era, porque é isso que explica por que o teste
+existe — um teste sem a história do defeito é o primeiro a ser apagado numa
+refatoração. Correção e teste de regressão em `docs/REVISAO-DE-DOMINIO.md`.
 
 ### D-1 · Navegação anônima esgota o limite de login (`web/src/lib/api.ts`)
 
@@ -476,14 +480,17 @@ vez de supor.
 
 ## Cenários NÃO VERIFICADOS (ausência de sinal, não aprovação)
 
-### N-1 · Escrita em empresa suspensa
+### ~~N-1 · Escrita em empresa suspensa~~ — COBERTO
 
-O seed não tem nenhuma empresa com assinatura `SUSPENDED` (as três estão
-`ACTIVE` ou `TRIAL`). A faixa "Somente leitura", o link "Ver como regularizar",
-a recusa de escrita e a permanência do ponto e do check-in ficam **não
-verificados**. `10-negativas.spec.ts` pula o cenário com essa razão em voz alta
-em vez de passar. Para cobrir: provisionar no seed uma empresa com
-`tenantStatus = SUSPENDED`.
+Era o caso mais gritante desta seção: o modo somente-leitura é o caminho mais
+delicado do produto e nenhuma empresa do seed estava suspensa, então ele nunca
+tinha sido exercitado.
+
+O seed passou a ter uma quarta empresa — **Vai e Vem Transporte Escolar**, em
+`SUSPENDED` — e `10-negativas.spec.ts` cobre as quatro partes do contrato: a
+faixa "Somente leitura" aparece, a leitura continua inteira, a escrita é
+recusada pelo servidor com `402 ACCOUNT_SUSPENDED`, e bater ponto continua
+passando.
 
 ### N-2 · Emissão de cobrança Pix
 

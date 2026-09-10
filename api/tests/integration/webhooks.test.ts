@@ -217,3 +217,66 @@ describe('processamento', () => {
     expect((await estadoDaFatura()).status).toBe('RECEIVED');
   });
 });
+
+describe('atomicidade da idempotencia', () => {
+  /*
+   * O defeito que este bloco existe para impedir.
+   *
+   * A marca de idempotencia (`WebhookEvent`) commitava sozinha e a baixa da
+   * fatura vinha depois, fora de transacao. Uma queda entre as duas deixava o
+   * evento marcado como processado e a fatura em aberto — e a retentativa do
+   * gateway respondia DUPLICADO, para sempre. O dinheiro entrou no Asaas e o
+   * sistema segue cobrando o responsavel, sem ninguem receber erro.
+   */
+  it('evento marcado mas fatura em aberto nao pode existir apos falha no meio', async () => {
+    // Simula o estado que a versao anterior produzia: marca gravada, efeito
+    // ausente. Se o codigo voltar a ser nao-transacional, ESTE e o estado que
+    // sobra em producao — e a retentativa abaixo prova que ele e irrecuperavel.
+    await runUnscoped('fixture', () =>
+      prisma.webhookEvent.create({
+        data: {
+          provider: 'ASAAS',
+          externalId: 'evt_0001',
+          eventType: 'PAYMENT_RECEIVED',
+          payloadHash: 'hash-de-uma-entrega-que-nao-terminou',
+        },
+      }),
+    );
+
+    const res = await enviar(evento(), TOKEN);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('DUPLICADO');
+
+    // A fatura continua em aberto e NAO ha como baixa-la por este caminho.
+    // E por isso que a marca precisa nascer dentro da mesma transacao do
+    // efeito: assim a queda desfaz as duas, e a retentativa reprocessa.
+    expect((await estadoDaFatura()).status).toBe('PENDING');
+  });
+
+  it('a entrega bem-sucedida deixa marca E efeito, os dois', async () => {
+    const res = await enviar(evento(), TOKEN);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('PROCESSADO');
+
+    expect((await estadoDaFatura()).status).toBe('RECEIVED');
+
+    const [marca] = await runUnscoped('check', () =>
+      prisma.$queryRaw<Array<{ externalId: string }>>`
+        SELECT "externalId" FROM "WebhookEvent" WHERE "externalId" = 'evt_0001'`,
+    );
+    expect(marca, 'a marca de idempotência precisa ter sido gravada junto').toBeTruthy();
+
+    const [transacao] = await runUnscoped('check', () =>
+      prisma.$queryRaw<Array<{ paid: boolean }>>`
+        SELECT paid FROM "FinancialTransaction" WHERE id = ${transactionId}`,
+    );
+    expect(transacao!.paid, 'a receita precisa entrar no DRE junto com a baixa').toBe(true);
+  });
+
+  it('evento que nao e de pagamento marca sem tocar na fatura', async () => {
+    const res = await enviar(evento({ event: 'PAYMENT_CREATED' }), TOKEN);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('IGNORADO');
+    expect((await estadoDaFatura()).status).toBe('PENDING');
+  });
+});

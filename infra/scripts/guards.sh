@@ -254,6 +254,38 @@ else
   falhar "node indisponivel — montagem dupla nao verificada"     "sem medicao nao ha aprovacao"
 fi
 
+# --- 18. dependencia auxiliar com teto de tempo ------------------------------
+# Medido, nao imaginado: com `docker pause vanpro-redis`, `/health/ready` e
+# `/students` deixaram de responder em 3 de 3 tentativas com 20s de espera,
+# enquanto a pagina estatica seguia em 200. O comentario do proprio arquivo
+# prometia "Redis fora = degradado, mas atende" — e a promessa valia so para
+# Redis CAIDO. Para Redis LENTO, sem `commandTimeout`, a promessa nunca resolve
+# e a requisicao HTTP inteira morre esperando o cache.
+# Procura a ATRIBUICAO, nao a palavra: a primeira versao deste guarda passava
+# por causa do proprio comentario que explica o defeito — a mesma armadilha em
+# que tres scanners caíram nesta rodada (o `pg_hba.conf` que diz "nao use md5"
+# virou "uso de MD5"). Comentario nao configura nada.
+if grep -qE "^[[:space:]]*commandTimeout:[[:space:]]*[0-9_]+" api/src/lib/redis.ts 2>/dev/null; then
+  ok "cliente de cache tem teto de tempo por comando"
+else
+  falhar "redis sem commandTimeout"     "sem teto por comando, cache lento derruba a API inteira — ja aconteceu neste projeto"
+fi
+
+# --- 19. sonda de vida na frente do limitador --------------------------------
+# `/health/live` responde "o processo esta de pe?". Atras do rate limit, ela
+# dependia do Redis para ser respondida: com o cache congelado, a sonda travou,
+# o orquestrador concluiu "morto" e reiniciaria um contentor saudavel.
+# De novo a ATRIBUICAO, e nao a palavra: a primeira versao comparava a linha do
+# comentario que explica o defeito (linha 107) com a do limitador (121) e
+# aprovava qualquer coisa. Aqui o alvo e o registro da rota.
+LINHA_LIVE=$(grep -nE "app\.get\('/api/v1/health/live'" api/src/http/app.ts 2>/dev/null | head -1 | cut -d: -f1)
+LINHA_LIMITE=$(grep -nE "app\.use\('/api/', globalLimiter\)" api/src/http/app.ts 2>/dev/null | head -1 | cut -d: -f1)
+if [ -n "$LINHA_LIVE" ] && [ -n "$LINHA_LIMITE" ] && [ "$LINHA_LIVE" -lt "$LINHA_LIMITE" ]; then
+  ok "sonda de vida responde antes do rate limit"
+else
+  falhar "sonda de vida atras do limitador"     "liveness que depende do cache transforma cache lento em reinicio de contentor"
+fi
+
 echo
 if [ "$FALHAS" -gt 0 ]; then
   printf '\033[31m%d guarda(s) falharam.\033[0m\n' "$FALHAS"

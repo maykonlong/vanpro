@@ -101,6 +101,23 @@ export function createApp(): Express {
 
   app.use(sentinela());
   app.use(csrfProtection);
+  /*
+   * A sonda de VIDA passa na frente do limitador.
+   *
+   * `/health/live` responde a uma unica pergunta: o processo esta de pe? Atras
+   * do `globalLimiter` ela dependia do Redis para ser respondida — e quando o
+   * Redis congelou (medido: `docker pause`, 3 de 3 tentativas sem resposta em
+   * 20s), a sonda travou junto. O orquestrador conclui "processo morto" e
+   * reinicia um contentor saudavel, transformando lentidao no cache em
+   * indisponibilidade real do produto.
+   *
+   * Ela nao le nada, nao toca no banco e nao devolve dado: nao ha o que
+   * proteger com limite aqui.
+   */
+  app.get('/api/v1/health/live', (_req, res) => {
+    res.json({ status: 'ok', uptimeSec: Math.round(process.uptime()) });
+  });
+
   app.use('/api/', globalLimiter);
 
   const apiRouter = buildRouter();

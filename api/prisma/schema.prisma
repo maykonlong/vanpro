@@ -79,6 +79,11 @@ model Company {
 
   @@index([tenantStatus])
   @@index([trialEndsAt])
+  // Indice de chave estrangeira: o PostgreSQL NAO cria um sozinho. Sem ele,
+  // toda exclusao do lado pai varre esta tabela inteira para checar
+  // referencia — e a varredura so aparece quando a tabela cresce, em
+  // producao, com o cliente esperando.
+  @@index([subscriptionId])
 }
 
 // ====================================================
@@ -166,6 +171,7 @@ model Session {
   @@index([userId])
   @@index([familyId])
   @@index([expiresAt])
+  @@index([companyId])
 }
 
 model Authenticator {
@@ -329,6 +335,7 @@ model Timecard {
 
   @@index([companyId, status])
   @@index([driverId, status])
+  @@index([vehicleId])
 }
 
 model Punch {
@@ -387,6 +394,7 @@ model Invoice {
   student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@index([companyId, status, dueDate])
+  @@index([studentId])
 }
 
 model Expense {
@@ -408,6 +416,8 @@ model Expense {
 
   @@index([companyId, date])
   @@index([companyId, category])
+  @@index([employeeId])
+  @@index([vehicleId])
 }
 
 // ====================================================
@@ -432,6 +442,7 @@ model AuditLog {
 
   @@index([companyId, createdAt])
   @@index([action])
+  @@index([userId])
 }
 
 // ====================================================
@@ -452,6 +463,8 @@ model Note {
   author  User    @relation(fields: [authorId], references: [id])
 
   @@index([companyId, studentId])
+  @@index([authorId])
+  @@index([studentId])
 }
 
 model IncidentAlert {
@@ -509,6 +522,8 @@ model Charter {
 
   @@index([companyId, status])
   @@index([companyId, startDate])
+  @@index([driverId])
+  @@index([vehicleId])
 }
 
 // ====================================================
@@ -547,6 +562,7 @@ model AIPost {
   campaign AICampaign? @relation(fields: [campaignId], references: [id])
 
   @@index([companyId, status])
+  @@index([campaignId])
 }
 
 // ====================================================

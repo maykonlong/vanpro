@@ -115,64 +115,95 @@ router.post('/payment', async (req, res) => {
 
   // Sem sessao nao ha tenant no contexto; o escopo e aberto de forma explicita
   // e, dentro dele, TODO `where` de modelo multi-tenant filtra companyId a mao.
-  const resultado = await runUnscoped('webhook-asaas', async () => {
-    try {
-      await prisma.webhookEvent.create({
-        data: {
-          provider: PROVIDER,
-          externalId,
-          eventType: evento.event,
-          payloadHash,
-        },
+  /*
+   * A marca de idempotencia e o efeito vivem na MESMA transacao.
+   *
+   * Antes, `webhookEvent.create` commitava sozinho e a baixa da fatura vinha
+   * depois. Entre uma coisa e outra cabe uma queda do processo, um erro do
+   * banco, um deploy no meio — e o estado que sobrava era o pior possivel: o
+   * evento marcado como processado e a fatura em aberto. A retentativa do
+   * gateway batia na unique, respondia DUPLICADO, e aquele pagamento nunca
+   * seria baixado. Ninguem receberia erro; o dinheiro entrou no Asaas e o
+   * sistema segue cobrando o responsavel.
+   *
+   * Dentro da transacao, a queda desfaz a marca junto com o efeito e a
+   * retentativa reprocessa — que e o que "idempotente" precisa significar.
+   *
+   * A protecao contra entrega simultanea continua inteira: a insercao na
+   * unique acontece dentro da transacao, a segunda entrega espera no indice e
+   * falha ao liberar.
+   */
+  const resultado = await runUnscoped('webhook-asaas', () =>
+    prisma.$transaction(async (tx) => {
+      try {
+        await tx.webhookEvent.create({
+          data: {
+            provider: PROVIDER,
+            externalId,
+            eventType: evento.event,
+            payloadHash,
+          },
+        });
+      } catch {
+        // Colisao na unique (provider, externalId): ja processamos este evento.
+        return { status: 'DUPLICADO' as const, invoiceId: null, companyId: null };
+      }
+
+      if (!EVENTOS_DE_PAGAMENTO.has(evento.event)) {
+        return { status: 'IGNORADO' as const, invoiceId: null, companyId: null };
+      }
+
+      const invoice = await tx.invoice.findFirst({
+        where: { gatewayId: evento.payment.id },
+        select: { id: true, companyId: true, studentId: true, amountCents: true, status: true },
       });
-    } catch {
-      // Colisao na unique (provider, externalId): ja processamos este evento.
-      // Insere-primeiro em vez de consultar-antes fecha a corrida entre duas
-      // entregas simultaneas do mesmo aviso.
-      return { status: 'DUPLICADO' as const };
-    }
 
-    if (!EVENTOS_DE_PAGAMENTO.has(evento.event)) {
-      return { status: 'IGNORADO' as const };
-    }
+      if (!invoice) {
+        // Cobranca de outro ambiente (sandbox/producao compartilhando token) ou
+        // criada fora do sistema. Registrar e seguir: 200 evita retentativa eterna.
+        logger.warn({ gatewayId: evento.payment.id }, 'webhook Asaas sem fatura correspondente');
+        return { status: 'SEM_FATURA' as const, invoiceId: null, companyId: null };
+      }
 
-    const invoice = await prisma.invoice.findFirst({
-      where: { gatewayId: evento.payment.id },
-      select: { id: true, companyId: true, studentId: true, amountCents: true, status: true },
-    });
+      if (invoice.status === 'RECEIVED') {
+        return { status: 'DUPLICADO' as const, invoiceId: invoice.id, companyId: invoice.companyId };
+      }
 
-    if (!invoice) {
-      // Cobranca de outro ambiente (sandbox/producao compartilhando token) ou
-      // criada fora do sistema. Registrar e seguir: 200 evita retentativa eterna.
-      logger.warn({ gatewayId: evento.payment.id }, 'webhook Asaas sem fatura correspondente');
-      return { status: 'SEM_FATURA' as const };
-    }
+      const companyId = invoice.companyId;
 
-    if (invoice.status === 'RECEIVED') return { status: 'DUPLICADO' as const };
+      await tx.invoice.update({
+        where: { id: invoice.id, companyId },
+        data: { status: 'RECEIVED' },
+      });
 
-    const companyId = invoice.companyId;
+      // `updateMany` porque `externalId` e unico mas pode nao existir (fatura
+      // criada antes do par transacao/cobranca); zero linhas afetadas e aceitavel.
+      await tx.financialTransaction.updateMany({
+        where: { externalId: evento.payment.id, companyId, paid: false },
+        data: { paid: true, paidAt: new Date() },
+      });
 
-    await prisma.invoice.update({
-      where: { id: invoice.id, companyId },
-      data: { status: 'RECEIVED' },
-    });
+      return { status: 'PROCESSADO' as const, invoiceId: invoice.id, companyId };
+    }),
+  );
 
-    // `updateMany` porque `externalId` e unico mas pode nao existir (fatura
-    // criada antes do par transacao/cobranca); zero linhas afetadas e aceitavel.
-    await prisma.financialTransaction.updateMany({
-      where: { externalId: evento.payment.id, companyId, paid: false },
-      data: { paid: true, paidAt: new Date() },
-    });
-
+  /*
+   * A trilha e escrita DEPOIS do commit, e nao dentro dele.
+   *
+   * `audit()` abre transacao propria e pede uma trava consultiva: chamado de
+   * dentro da transacao do webhook, ele gravaria por um cliente diferente e
+   * sobreviveria a um rollback — a trilha afirmaria "pagamento confirmado"
+   * sobre uma fatura que continuou em aberto. Trilha que mente e pior que
+   * trilha ausente.
+   */
+  if (resultado.status === 'PROCESSADO') {
     await audit({
       action: 'INVOICE_PAID',
-      description: `Pagamento confirmado pelo ${PROVIDER} (cobrança ${evento.payment.id}) para a fatura ${invoice.id}.`,
-      companyId,
+      description: `Pagamento confirmado pelo ${PROVIDER} (cobrança ${evento.payment.id}) para a fatura ${resultado.invoiceId}.`,
+      companyId: resultado.companyId,
       userId: null,
     });
-
-    return { status: 'PROCESSADO' as const };
-  });
+  }
 
   // Sempre 200 depois da assinatura validada: 5xx aqui faz o gateway repetir a
   // entrega indefinidamente sem que nada mude do nosso lado.

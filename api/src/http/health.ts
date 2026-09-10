@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
-import { redis, redisHealthy } from '../lib/redis';
+import { redisPingRapido } from '../lib/redis';
 import { runUnscoped } from '../lib/request-context';
 import { env, features } from '../config/env';
 import { renderizarPrometheus } from '../lib/metrics';
@@ -33,16 +33,10 @@ router.get('/ready', async (_req, res) => {
     checks.database = 'down';
   }
 
-  if (redisHealthy()) {
-    try {
-      await redis.ping();
-      checks.cache = 'ok';
-    } catch {
-      checks.cache = 'down';
-    }
-  } else {
-    checks.cache = 'down';
-  }
+  // Ping com teto de tempo: `redis.ping()` nu ficava pendurado quando o Redis
+  // estava LENTO em vez de fora, e a sonda de prontidao — que existe para
+  // responder rapido — travava junto com ele.
+  checks.cache = (await redisPingRapido()) ? 'ok' : 'down';
 
   // Banco fora = nao pronto. Redis fora = degradado, mas atende: o rate limit
   // cai para memoria local e o resto do produto continua de pe.

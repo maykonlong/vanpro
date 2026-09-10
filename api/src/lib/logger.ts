@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import pino from 'pino';
 import { env } from '../config/env';
 import { getContext } from './request-context';
@@ -75,11 +76,27 @@ function temPinoPretty(): boolean {
 }
 
 /**
- * Identificador estavel e nao reversivel para correlacionar sem guardar o dado.
- * Ex.: saber que 40 tentativas de login vieram do mesmo e-mail, sem gravar o e-mail.
+ * Identificador estavel para correlacionar sem guardar o dado.
+ *
+ * HMAC, e nao hash puro. O espaco de e-mails e adivinhavel: quem obtem a trilha
+ * de auditoria — que e justamente onde estes valores aparecem — testa candidatos
+ * (`maria@gmail.com`, `joao@escola.com.br`, a lista inteira de uma turma) e
+ * casa o digest. Um SHA-256 de e-mail nao pseudonimiza ninguem; so parece
+ * pseudonimizar, que e pior, porque a pessoa que le o codigo para de procurar.
+ *
+ * Com HMAC, reverter exige a chave do servidor. Reusamos `JWT_ACCESS_SECRET`
+ * por ele ja existir, ja ser obrigatorio e ja ter piso de entropia validado no
+ * schema de ambiente — e porque uma variavel a mais que ninguem preenche vira
+ * segredo fraco na primeira instalacao.
+ *
+ * Consequencia aceita: rotacionar esse segredo quebra a correlacao com o que
+ * ja esta gravado. E o comportamento certo — pseudonimo que sobrevive a
+ * rotacao de chave e pseudonimo que nao depende de chave nenhuma.
  */
 export function pseudonymize(value: string): string {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const crypto = require('node:crypto') as typeof import('node:crypto');
-  return crypto.createHash('sha256').update(value.toLowerCase()).digest('hex').slice(0, 16);
+  return crypto
+    .createHmac('sha256', env.JWT_ACCESS_SECRET)
+    .update(value.trim().toLowerCase())
+    .digest('hex')
+    .slice(0, 16);
 }

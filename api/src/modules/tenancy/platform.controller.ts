@@ -38,6 +38,40 @@ const router = Router();
  */
 router.use(requireSuperAdmin);
 
+/**
+ * Segundo fator OBRIGATORIO neste console — e so neste.
+ *
+ * Aqui uma pessoa suspende qualquer frota cliente e enxerga o tamanho de todas
+ * elas. Senha sozinha protegendo isso significa que uma credencial vazada de um
+ * unico usuario tira do ar todos os clientes de uma vez; e o 2FA do produto e
+ * opcional por desenho (mae que abre o app uma vez por mes nao vai configurar
+ * TOTP).
+ *
+ * A exigencia fica na PORTA DO CONSOLE, e nao no login. Exigir no login
+ * trancaria o administrador para fora do sistema inteiro no dia em que
+ * perdesse o telefone — e o remedio (redefinir 2FA) mora dentro do sistema.
+ * Assim ele entra, le a recusa dizendo exatamente o que fazer, ativa o segundo
+ * fator em Configuracoes e volta.
+ */
+router.use(async (req, _res, next) => {
+  try {
+    const user = await runUnscoped('platform-2fa', () =>
+      prisma.user.findUnique({
+        where: { id: req.auth!.userId },
+        select: { isTwoFactorEnabled: true },
+      }),
+    );
+    if (!user?.isTwoFactorEnabled) {
+      throw Errors.forbidden(
+        'O console da plataforma exige segundo fator. Ative a verificação em duas etapas em Configurações e tente de novo.',
+      );
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
 const ESTADOS = ['TRIAL', 'ACTIVE', 'PAST_DUE', 'SUSPENDED', 'CANCELED'] as const;
 
 /** Lista das frotas com o estado da assinatura e o tamanho de cada uma. */
@@ -66,6 +100,27 @@ router.get('/companies', requireSuperAdmin, validate({ query: pagination }), asy
       prisma.company.count(),
     ]),
   );
+
+  /*
+   * Leitura entre empresas TAMBEM deixa rastro.
+   *
+   * Escrita ja era auditada; a listagem nao. Mas quem opera a plataforma
+   * enxerga o nome, o plano e o tamanho de todas as frotas clientes — se um dia
+   * for preciso responder "quem consultou a base inteira e quando", sem isto a
+   * resposta e "nao da para saber". Fica na trilha da PLATAFORMA (companyId
+   * null), que e a de quem praticou o ato.
+   *
+   * O volume e baixo por natureza: e um console de administracao, nao uma rota
+   * de produto.
+   */
+  await audit({
+    action: 'PLATFORM_COMPANIES_LISTED',
+    description: `Console da plataforma listou ${rows.length} frota(s) (pagina ${page}).`,
+    companyId: null,
+    userId: req.auth!.userId,
+    ipAddress: req.ip ?? null,
+    userAgent: req.get('user-agent') ?? null,
+  });
 
   res.json(
     paginate(

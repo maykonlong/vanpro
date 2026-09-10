@@ -1,3 +1,4 @@
+import { authenticator } from 'otplib';
 import bcrypt from 'bcryptjs';
 import request from 'supertest';
 import type { Express } from 'express';
@@ -72,6 +73,15 @@ export interface Usuario {
   companyId: string | null;
 }
 
+/**
+ * Segredo TOTP fixo para as fixtures que precisam de segundo fator.
+ *
+ * O console da plataforma exige 2FA (senha sozinha nao pode suspender uma
+ * frota), entao o SUPER_ADMIN de teste precisa nascer com ele ativo — do
+ * contrario o teste mediria a recusa do 2FA, e nao a regra que quer provar.
+ */
+export const SEGREDO_2FA_TESTE = 'KRSXG5CTMVRXEZLUGE3TMNZS';
+
 export async function criarUsuario(
   empresa: Empresa | null,
   role: Papel,
@@ -88,6 +98,12 @@ export async function criarUsuario(
         password: hash,
         role,
         tenantId: empresa?.id ?? null,
+        // Só quem opera a plataforma nasce com segundo fator: é a única porta
+        // que o exige, e ligá-lo para todos faria cada login de fixture pagar
+        // uma etapa que a rota sob teste não pede.
+        ...(role === 'SUPER_ADMIN'
+          ? { isTwoFactorEnabled: true, twoFactorSecret: SEGREDO_2FA_TESTE }
+          : {}),
       },
     }),
   );
@@ -227,9 +243,26 @@ export async function cenarioDuasEmpresas() {
 
 export async function autenticar(email: string) {
   const c = new Cliente();
-  const res = await c.login(email);
+  let res = await c.login(email);
   if (res.status !== 200) {
     throw new Error(`login de ${email} falhou: ${res.status} ${JSON.stringify(res.body)}`);
+  }
+
+  /*
+   * Segunda etapa quando a conta exige segundo fator.
+   *
+   * O SUPER_ADMIN de fixture nasce com 2FA porque o console da plataforma o
+   * exige. Sem este trecho, todo teste de plataforma mediria a ausencia da
+   * sessao — e passaria pelos motivos errados.
+   */
+  if (res.body?.requires2FA) {
+    res = await c.post('/api/v1/auth/2fa/login', {
+      challengeId: res.body.challengeId,
+      code: authenticator.generate(SEGREDO_2FA_TESTE),
+    });
+    if (res.status !== 200) {
+      throw new Error(`2FA de ${email} falhou: ${res.status} ${JSON.stringify(res.body)}`);
+    }
   }
   return c;
 }

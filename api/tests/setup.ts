@@ -74,6 +74,22 @@ const TABLES = [
  */
 let migrado = false;
 
+/**
+ * Chave da trava que serializa EXECUCOES DA SUITE.
+ *
+ * Duas suites contra o mesmo `vanpro_test` se destroem: o `beforeEach` de uma
+ * apaga as tabelas no meio dos casos da outra. O sintoma nao parece
+ * concorrencia — parece defeito de produto. Foi medido aqui: uma rodada com
+ * outra em paralelo devolveu 96 falhas com violacao de chave estrangeira em
+ * fixture, 404 em rota que existe e ate deadlock no Postgres; as mesmas 379
+ * passam duas vezes seguidas quando a suite roda sozinha.
+ *
+ * Custa dias descobrir isso da primeira vez, e o custo se repete a cada
+ * pessoa nova na equipe. Uma trava consultiva resolve: a segunda suite ESPERA
+ * em vez de corromper a primeira.
+ */
+const TRAVA_DA_SUITE = 8_270_119_042_113n;
+
 function migrarUmaVez(): void {
   if (migrado) return;
   migrado = true;
@@ -86,11 +102,30 @@ function migrarUmaVez(): void {
   });
 }
 
+let travaObtida = false;
+
+/**
+ * Pega a trava da suite uma vez por processo.
+ *
+ * `pg_advisory_lock` (de sessao, nao de transacao): fica presa enquanto a
+ * conexao viver, e o Postgres a devolve sozinho se o processo morrer — nao ha
+ * como esquecer aberta e travar o proximo desenvolvedor.
+ */
+async function travarSuite(): Promise<void> {
+  if (travaObtida) return;
+  travaObtida = true;
+  // GUARDA: sql-cru-auditado — trava consultiva de sessao, sem tabela envolvida.
+  await runUnscoped('test-lock', () =>
+    prisma.$executeRaw`SELECT pg_advisory_lock(${TRAVA_DA_SUITE}::bigint)`,
+  );
+}
+
 beforeEach(async (ctx) => {
   // Truncar so no que fala com o banco. Teste de unidade pagando uma limpeza de
   // 24 tabelas por caso transformou a suite em 158 segundos de espera.
   if (!ctx.task.file.filepath.includes('integration')) return;
 
+  await travarSuite();
   migrarUmaVez();
 
   await runUnscoped('test-truncate', () =>
@@ -99,5 +134,11 @@ beforeEach(async (ctx) => {
 });
 
 afterAll(async () => {
+  if (travaObtida) {
+    // GUARDA: sql-cru-auditado — devolve a trava consultiva desta sessao.
+    await runUnscoped('test-unlock', () =>
+      prisma.$executeRaw`SELECT pg_advisory_unlock(${TRAVA_DA_SUITE}::bigint)`,
+    ).catch(() => undefined);
+  }
   await prisma.$disconnect();
 });

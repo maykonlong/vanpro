@@ -127,6 +127,12 @@ const RUAS = [
   'Rua Barão de Jundiaí', 'Av. Nossa Senhora de Fátima',
 ];
 
+/**
+ * Segredo TOTP do administrador de demonstracao. Base32, formato do otplib.
+ * Documentado no README junto das contas — nao e credencial de producao.
+ */
+const SEGREDO_2FA_DEMO = 'KRSXG5CTMVRXEZLUGE3TMNZS';
+
 async function main() {
   await runUnscoped('seed', async () => {
     const senha = await bcrypt.hash(SENHA_DEMO, 12);
@@ -145,16 +151,35 @@ async function main() {
       }),
     ]);
 
-    // --- plataforma -------------------------------------------------------
+    /*
+     * --- plataforma -------------------------------------------------------
+     *
+     * O administrador da plataforma nasce com SEGUNDO FATOR ATIVO, e o segredo
+     * TOTP e conhecido (`SEGREDO_2FA_DEMO`).
+     *
+     * O console da plataforma suspende qualquer frota cliente e enxerga o
+     * tamanho de todas — senha sozinha protegendo isso significa que uma
+     * credencial vazada tira do ar todos os clientes de uma vez. O servidor
+     * exige o segundo fator nessa porta (`platform.controller.ts`), entao o
+     * dado de demonstracao precisa refletir o estado real de uso: sem isto, a
+     * unica conta capaz de operar o console seria a unica que nao consegue
+     * entrar nele.
+     *
+     * O segredo e fixo porque este e o ambiente de demonstracao e a suite de
+     * ponta a ponta precisa gerar o codigo. Em producao ele nasce do
+     * `authenticator.generateSecret()` no fluxo de ativacao, por usuario.
+     */
     await prisma.user.upsert({
       where: { email: 'admin@vanpro.com.br' },
-      update: {},
+      update: { isTwoFactorEnabled: true, twoFactorSecret: SEGREDO_2FA_DEMO },
       create: {
         name: 'Administrador da Plataforma',
         email: 'admin@vanpro.com.br',
         password: senha,
         role: 'SUPER_ADMIN',
         tenantId: null,
+        isTwoFactorEnabled: true,
+        twoFactorSecret: SEGREDO_2FA_DEMO,
       },
     });
 
