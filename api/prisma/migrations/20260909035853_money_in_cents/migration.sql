@@ -1,15 +1,3 @@
--- ACEITE-DESTRUTIVO: reescrita v3, 2026-09-10. As 7 colunas removidas sao os
--- campos monetarios em ponto flutuante (`amount`, `price`, `monthlyFee`,
--- `dailyRate`), substituidos pelos equivalentes em centavos inteiros. Manter as
--- duas representacoes lado a lado seria pior que remover: duas fontes de verdade
--- para o mesmo valor, com a soma divergindo entre elas.
---
--- Por que o rollback para a versao anterior nao e necessario: esta migration
--- pertence a reescrita inicial, aplicada sobre banco vazio. Nao existe deploy
--- anterior a ela para o qual voltar, e nenhum dado de cliente atravessou a
--- mudanca. A partir daqui vale expand/contract — remover coluna passa a exigir
--- duas releases de distancia.
-
 /*
   Warnings:
 

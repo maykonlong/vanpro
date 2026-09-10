@@ -112,12 +112,18 @@ describe('sentinela', () => {
 
 describe('resposta de erro', () => {
   it('erro 500 nao vaza stack, SQL nem mensagem interna', async () => {
-    // Usuario sem empresa vinculada: o guard do Prisma falha fechado na
-    // primeira consulta escopada, e o que interessa e COMO isso chega ao cliente.
-    await criarUsuario(null, 'OWNER', 'sem.empresa@teste.com.br');
-    const orfao = await autenticar('sem.empresa@teste.com.br');
+    // SUPER_ADMIN opera a plataforma, nao uma frota: a sessao dele nasce sem
+    // empresa ativa. Ao tocar uma rota escopada por empresa, o guard do Prisma
+    // falha fechado — e o que interessa aqui e COMO isso chega ao cliente.
+    //
+    // (Ate a versao anterior este teste usava um usuario sem vinculo nenhum.
+    // Deixou de servir quando o login passou a recusar quem nao tem vinculo,
+    // que e a decisao certa: quem nao pertence a empresa alguma nao recebe
+    // sessao.)
+    await criarUsuario(null, 'SUPER_ADMIN', 'plataforma@teste.com.br');
+    const plataforma = await autenticar('plataforma@teste.com.br');
 
-    const res = await orfao.get('/api/v1/students');
+    const res = await plataforma.get('/api/v1/students');
     expect(res.status).toBe(500);
     expect(res.body.error.code).toBe('INTERNAL_ERROR');
     expect(res.body.error.message).toBe('Erro interno. A equipe foi notificada.');
@@ -208,7 +214,7 @@ describe('empresa suspensa', () => {
 
   it('deixa passar as escritas essenciais: ponto, check-in e direitos do titular', async () => {
     const dono = await autenticar('dono.alfa@teste.com.br');
-    const aluno = await dono.post('/api/v1/students', ALUNO);
+    const aluno = await dono.post('/api/v1/students', { ...ALUNO, name: 'Aluno Antes da Suspensao' });
     expect(aluno.status).toBe(201);
 
     await suspender();
@@ -230,7 +236,7 @@ describe('empresa suspensa', () => {
     await suspender();
     const donoBeta = await autenticar('dono.beta@teste.com.br');
     expect((await donoBeta.get('/api/v1/students')).status).toBe(200);
-    expect((await donoBeta.post('/api/v1/students', ALUNO)).status).toBe(201);
+    expect((await donoBeta.post('/api/v1/students', { ...ALUNO, name: 'Aluno da Vizinha' })).status).toBe(201);
   });
 });
 

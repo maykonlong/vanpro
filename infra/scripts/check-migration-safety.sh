@@ -27,13 +27,18 @@
 #
 # ─── Como aceitar ──────────────────────────────────────────────────────────
 #
-# Escreva, dentro do próprio `migration.sql`, uma linha de comentário:
+# Crie, NA MESMA PASTA do `migration.sql`, um arquivo `ACEITE-DESTRUTIVO.md`
+# dizendo quem aceitou, quando, por que a remoção é a decisão certa, e por que
+# o rollback para a versão anterior não é mais necessário.
 #
-#   -- ACEITE-DESTRUTIVO: <quem> <AAAA-MM-DD> <por que, e por que o rollback
-#   -- para a versao anterior nao e mais necessario>
+# O aceite fica versionado ao lado do comando que autoriza — não numa planilha,
+# não numa mensagem de commit que ninguém relê.
 #
-# O marcador fica no arquivo, versionado, ao lado do comando que ele autoriza —
-# não numa planilha, não numa mensagem de commit que ninguém relê.
+# Por que ao LADO, e não dentro do `migration.sql`: o Prisma guarda o checksum
+# de cada migration em `_prisma_migrations`. Editar o arquivo de uma migration
+# JÁ APLICADA muda o checksum, e o próximo `migrate dev` passa a exigir reset do
+# banco. Em desenvolvimento é um susto; em produção é um incidente. A primeira
+# versão deste guarda pedia o marcador dentro do SQL e quebrou exatamente assim.
 #
 # Antes de escrever o marcador, considere expand/contract (ver o topo de
 # `infra/scripts/rollback.sh`): quase toda remoção pode virar um deploy que
@@ -91,7 +96,7 @@ fi
 sem_comentario() { grep -vE '^[[:space:]]*--' ; }
 
 PADRAO='DROP[[:space:]]+COLUMN|DROP[[:space:]]+TABLE|SET[[:space:]]+NOT[[:space:]]+NULL|DROP[[:space:]]+CONSTRAINT'
-MARCADOR='^[[:space:]]*--[[:space:]]*ACEITE-DESTRUTIVO:'
+ACEITE='ACEITE-DESTRUTIVO.md'
 
 FALHAS=0
 ACEITOS=0
@@ -108,10 +113,20 @@ while read -r arq; do
     continue
   fi
 
-  if grep -qiE "$MARCADOR" "$arq"; then
+  ARQ_ACEITE="$(dirname "$arq")/$ACEITE"
+  if [ -f "$ARQ_ACEITE" ]; then
+    # Aceite vazio nao e aceite: um arquivo em branco criado so para calar o
+    # guarda e o mesmo que nao ter decidido nada.
+    if [ "$(tr -d '[:space:]' < "$ARQ_ACEITE" | wc -c)" -lt 80 ]; then
+      FALHAS=$((FALHAS + 1))
+      printf '\033[31mFALHA\033[0m  %s\n' "$arq"
+      printf '        %s existe mas esta praticamente vazio.\n' "$ARQ_ACEITE"
+      printf '        Escreva o motivo: aceite sem justificativa nao e decisao, e silencio.\n\n'
+      continue
+    fi
     ACEITOS=$((ACEITOS + 1))
     printf '\033[33maceito\033[0m %s\n' "$arq"
-    printf '        %s\n' "$(grep -iE "$MARCADOR" "$arq" | head -1 | sed 's/^[[:space:]]*//')"
+    printf '        ver %s\n' "$ARQ_ACEITE"
     continue
   fi
 
@@ -124,15 +139,20 @@ while read -r arq; do
          deixa de bastar — e ele nao tem como saber disso sozinho.
 
          Prefira expand/contract (ver o topo de infra/scripts/rollback.sh).
-         Se a remocao for mesmo a decisao certa, escreva no proprio arquivo:
+         Se a remocao for mesmo a decisao certa, crie ao lado deste SQL:
 
-           -- ACEITE-DESTRUTIVO: <quem> $(date -u +%Y-%m-%d) <por que, e por que
-           -- o rollback para a versao anterior nao e mais necessario>
+           $(dirname "$arq")/ACEITE-DESTRUTIVO.md
+
+         dizendo quem aceitou, quando, por que remover e por que o rollback para
+         a versao anterior nao e mais necessario.
+
+         NAO escreva o aceite dentro do migration.sql: isso muda o checksum de
+         uma migration ja aplicada e o proximo `migrate dev` exige reset.
 
 TXT
 done <<< "$ARQUIVOS"
 
-printf '\n[migration-safety] %d limpa(s) · %d aceita(s) por marcador · %d reprovada(s)\n' \
+printf '\n[migration-safety] %d limpa(s) · %d aceita(s) por escrito · %d reprovada(s)\n' \
   "$LIMPOS" "$ACEITOS" "$FALHAS"
 
 if [ "$FALHAS" -gt 0 ]; then
