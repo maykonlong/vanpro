@@ -1,0 +1,55 @@
+# ─── Observabilidade — opt-in, fora do compose de producao ───────────────────
+#
+# Sobe um Prometheus que raspa o /api/v1/health/metrics do contêiner `api` pela
+# rede interna do projeto. Fica separado de propósito: acrescentar isto ao
+# `docker-compose.yml` mudaria a topologia do deploy sem decisão de ninguém, e
+# um Prometheus mal configurado ao lado do banco é superfície nova.
+#
+#   docker compose -p vanpro-obs \
+#     -f infra/observabilidade/docker-compose.observabilidade.yml up -d
+#
+# Requer, ANTES:
+#   • a stack do VanPro no ar (é ela que cria a rede `vanpro_default`);
+#   • as regras validadas:  promtool check rules infra/observabilidade/alertas.yml
+#
+# NÃO verificado contra host — é config correta contra os alvos lidos no código;
+# a coleta real só se prova no servidor.
+
+name: vanpro-obs
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: vanpro-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alertas.yml:/etc/prometheus/alertas.yml:ro
+      # Com Prometheus externo, o token do /health/metrics entra por aqui, fora
+      # do git (ver o comentário longo em prometheus.yml):
+      #   printf '%s' "$METRICS_TOKEN" > infra/observabilidade/metrics_token
+      # - ./metrics_token:/etc/prometheus/metrics_token:ro
+      - prometheus_dados:/prometheus
+
+    # Sem `ports`: o Prometheus fica só na rede interna, como o Postgres. Para
+    # ver a UI, um túnel SSH (`ssh -L 9090:vanpro-prometheus:9090 …`) — nunca
+    # publicado cru. Um Prometheus aberto entrega o mapa inteiro da aplicação:
+    # que rotas existem, quanto tráfego cada uma recebe, quando o app cai.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    networks: [vanpro]
+
+networks:
+  # A rede que o `docker-compose.yml` da raiz cria (projeto `vanpro`). Externa
+  # aqui: este compose usa a rede, não a possui — se ela sumir, este stack falha
+  # alto em vez de criar uma rede vazia e raspar o nada.
+  vanpro:
+    name: vanpro_default
+    external: true
+
+volumes:
+  prometheus_dados:

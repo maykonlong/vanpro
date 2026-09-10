@@ -200,6 +200,12 @@ jobs:
       - name: Guardas de regressao
         run: bash infra/scripts/guards.sh
 
+      # Migration destrutiva quebra o rollback de codigo: a versao anterior deixa
+      # de funcionar contra o schema novo. Remocao passa a exigir aceite escrito
+      # no proprio arquivo, com o motivo.
+      - name: Migrations sem remocao nao declarada
+        run: bash infra/scripts/check-migration-safety.sh
+
   docker:
     name: Imagens sobem
     runs-on: ubuntu-latest
