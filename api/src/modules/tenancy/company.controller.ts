@@ -520,10 +520,13 @@ publicRouter.post(
       });
     });
 
+    // A empresa ativa e a do convite que acabou de ser aceito — nao o
+    // `tenantId` do usuario, que pode apontar para outra frota se a pessoa ja
+    // trabalhava em uma.
     await issueSession(req, res, {
       id: resultado.user.id,
       role: resultado.user.role,
-      tenantId: resultado.user.tenantId,
+      companyId: resultado.user.tenantId,
     });
     const csrfToken = issueCsrfToken(res);
 

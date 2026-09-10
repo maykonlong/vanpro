@@ -199,9 +199,11 @@ async function main() {
       },
     });
 
+    // A chave passou a ser (empresa, usuario): a mesma pessoa tem um cadastro
+    // de motorista por frota.
     const motoristaCarlos = await prisma.driver.upsert({
-      where: { userId: carlos.id },
-      update: {},
+      where: { companyId_userId: { companyId: transvan.id, userId: carlos.id } },
+      update: { name: 'Carlos Oliveira' },
       create: {
         companyId: transvan.id,
         userId: carlos.id,
@@ -210,15 +212,29 @@ async function main() {
         dailyRateCents: toCents(180),
       },
     });
+
+    // Joana atende as DUAS frotas, com diaria diferente em cada uma. E o caso
+    // que o produto promete e que a versao anterior nao conseguia representar.
     await prisma.driver.upsert({
-      where: { userId: joana.id },
-      update: {},
+      where: { companyId_userId: { companyId: rotaSegura.id, userId: joana.id } },
+      update: { name: 'Joana Martins' },
       create: {
         companyId: rotaSegura.id,
         userId: joana.id,
         name: 'Joana Martins',
         shiftType: 'AFTERNOON',
         dailyRateCents: toCents(160),
+      },
+    });
+    await prisma.driver.upsert({
+      where: { companyId_userId: { companyId: transvan.id, userId: joana.id } },
+      update: { name: 'Joana Martins' },
+      create: {
+        companyId: transvan.id,
+        userId: joana.id,
+        name: 'Joana Martins',
+        shiftType: 'MORNING',
+        dailyRateCents: toCents(200),
       },
     });
 

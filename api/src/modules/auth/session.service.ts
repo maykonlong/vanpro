@@ -83,11 +83,25 @@ export interface IssuedSession {
   sessionId: string;
 }
 
+/**
+ * Identidade da sessao.
+ *
+ * `companyId` e a empresa ATIVA — propriedade da sessao, nao do usuario. A
+ * mesma pessoa pode ter sessoes simultaneas em frotas diferentes, que e o caso
+ * do motorista freelancer. `role` e o papel DENTRO dessa empresa, e nao o papel
+ * global: alguem pode ser dono de uma frota e motorista em outra.
+ */
+export interface SujeitoDaSessao {
+  id: string;
+  role: string;
+  companyId: string | null;
+}
+
 /** Cria uma familia de sessao nova (login). */
 export async function issueSession(
   req: Request,
   res: Response,
-  user: { id: string; role: string; tenantId: string | null },
+  user: SujeitoDaSessao,
 ): Promise<IssuedSession> {
   const familyId = crypto.randomUUID();
   return rotate(req, res, user, familyId, null);
@@ -96,7 +110,7 @@ export async function issueSession(
 async function rotate(
   req: Request,
   res: Response,
-  user: { id: string; role: string; tenantId: string | null },
+  user: SujeitoDaSessao,
   familyId: string,
   previousSessionId: string | null,
 ): Promise<IssuedSession> {
@@ -107,6 +121,7 @@ async function rotate(
     prisma.session.create({
       data: {
         userId: user.id,
+        companyId: user.companyId,
         familyId,
         tokenHash: hash(refreshRaw),
         userAgentHash: userAgentHash(req),
@@ -128,7 +143,7 @@ async function rotate(
   const accessToken = signAccessToken({
     sub: user.id,
     role: user.role,
-    tenantId: user.tenantId,
+    tenantId: user.companyId,
     sid: session.id,
     fam: familyId,
   });
@@ -206,13 +221,112 @@ export async function refreshSession(req: Request, res: Response): Promise<Issue
     throw new AppError(401, 'SESSION_DEVICE_MISMATCH', 'Sessão encerrada por segurança. Entre novamente.');
   }
 
+  // O papel e relido do vinculo a cada rotacao. Promover ou rebaixar alguem
+  // precisa valer na proxima renovacao, e nao so no proximo login — e a empresa
+  // ativa vem da SESSAO, para o freelancer nao ser jogado de volta na outra
+  // frota a cada 15 minutos.
+  const papel = await papelNaEmpresa(session.userId, session.companyId, session.user.role);
+  if (!papel) {
+    await revokeFamily(session.familyId);
+    clearSessionCookies(res);
+    throw Errors.forbidden('Seu vínculo com esta empresa não está mais ativo.');
+  }
+
   return rotate(
     req,
     res,
-    { id: session.user.id, role: session.user.role, tenantId: session.user.tenantId },
+    { id: session.user.id, role: papel, companyId: session.companyId },
     session.familyId,
     session.id,
   );
+}
+
+/**
+ * Papel da pessoa DENTRO da empresa ativa, ou `null` se o vinculo nao esta mais
+ * ativo. Para SUPER_ADMIN (sem empresa) devolve o papel de plataforma.
+ */
+export async function papelNaEmpresa(
+  userId: string,
+  companyId: string | null,
+  papelDePlataforma: string,
+): Promise<string | null> {
+  if (!companyId) return papelDePlataforma === 'SUPER_ADMIN' ? papelDePlataforma : null;
+
+  const vinculo = await runUnscoped('session-role', () =>
+    prisma.userCompany.findFirst({
+      where: { userId, companyId, status: { in: ['ACTIVE', 'ARCHIVED'] } },
+      select: { role: true },
+    }),
+  );
+  return vinculo?.role ?? null;
+}
+
+export interface VinculoAtivo {
+  companyId: string;
+  companyName: string;
+  role: string;
+  contractType: string;
+  status: string;
+}
+
+/**
+ * Empresas em que a pessoa pode entrar hoje.
+ *
+ * `ARCHIVED` entra na lista de proposito: ex-funcionario mantem acesso de
+ * leitura ao proprio historico, que e o que o protege num processo trabalhista.
+ * Quem nao entra e quem foi suspenso ou apenas convidado sem aceitar.
+ */
+export async function vinculosAtivos(userId: string): Promise<VinculoAtivo[]> {
+  const vinculos = await runUnscoped('session-bonds', () =>
+    prisma.userCompany.findMany({
+      where: { userId, status: { in: ['ACTIVE', 'ARCHIVED'] } },
+      select: {
+        companyId: true,
+        role: true,
+        contractType: true,
+        status: true,
+        company: { select: { name: true } },
+      },
+      orderBy: { joinedAt: 'asc' },
+    }),
+  );
+
+  return vinculos.map((v) => ({
+    companyId: v.companyId,
+    companyName: v.company.name,
+    role: v.role,
+    contractType: v.contractType,
+    status: v.status,
+  }));
+}
+
+/**
+ * Troca a empresa ativa.
+ *
+ * A familia anterior e revogada e uma nova nasce, em vez de o `companyId` da
+ * sessao existente ser reescrito. Assim um token de acesso emitido para a
+ * frota A nunca passa a valer para a frota B durante os 15 minutos de vida que
+ * ainda lhe restam — a troca e um corte, nao uma edicao.
+ */
+export async function switchCompany(
+  req: Request,
+  res: Response,
+  userId: string,
+  papelDePlataforma: string,
+  companyIdDestino: string,
+  familiaAtual: string | null,
+): Promise<IssuedSession> {
+  const papel = await papelNaEmpresa(userId, companyIdDestino, papelDePlataforma);
+  if (!papel) throw Errors.forbidden('Você não tem vínculo ativo com esta empresa.');
+
+  if (familiaAtual) await revokeFamily(familiaAtual);
+
+  // Lembra a escolha para o proximo login sugerir a mesma frota.
+  await runUnscoped('session-write', () =>
+    prisma.user.update({ where: { id: userId }, data: { tenantId: companyIdDestino } }),
+  );
+
+  return issueSession(req, res, { id: userId, role: papel, companyId: companyIdDestino });
 }
 
 export async function revokeFamily(familyId: string): Promise<void> {

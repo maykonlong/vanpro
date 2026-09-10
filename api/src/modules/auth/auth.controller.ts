@@ -32,6 +32,9 @@ import {
   revokeFamily,
   revokeAllUserSessions,
   clearSessionCookies,
+  vinculosAtivos,
+  switchCompany,
+  papelNaEmpresa,
 } from './session.service';
 import {
   hashPassword,
@@ -160,7 +163,23 @@ async function registerFailedAttempt(userId: string, email: string, ip: string |
   });
 }
 
-/** Zera o contador e devolve a sessao pronta. Usado pelo login e pelo 2FA. */
+const AUDIENCIA_ESCOLHA = 'vanpro-escolha-empresa';
+
+/**
+ * Zera o contador e devolve a sessao pronta. Usado pelo login, pelo 2FA e pela
+ * passkey.
+ *
+ * Antes de emitir, resolve QUAL empresa. A regra existe porque a mesma pessoa
+ * pode ter vinculo ativo em mais de uma frota — o motorista freelancer que o
+ * produto promete. A versao anterior lia `User.tenantId`, um escalar, e por
+ * isso o segundo vinculo nunca era alcancavel.
+ *
+ *   nenhum vinculo  -> so entra se for SUPER_ADMIN (opera a plataforma)
+ *   um vinculo      -> entra direto nele
+ *   mais de um      -> NAO emite sessao: devolve a lista e um token de escolha
+ *                      de 5 minutos. Escolher primeiro evita o susto de cair
+ *                      na frota errada e agir nela sem perceber.
+ */
 async function completeLogin(
   req: Parameters<typeof issueSession>[0],
   res: Parameters<typeof issueSession>[1],
@@ -172,17 +191,55 @@ async function completeLogin(
     data: { failedLoginCount: 0, lockedUntil: null },
   });
 
-  await issueSession(req, res, { id: user.id, role: user.role, tenantId: user.tenantId });
+  const vinculos = await vinculosAtivos(user.id);
+
+  if (user.role === 'SUPER_ADMIN' && vinculos.length === 0) {
+    await issueSession(req, res, { id: user.id, role: user.role, companyId: null });
+    await audit({
+      action: 'AUTH_LOGIN_SUCCESS',
+      description: `Login de plataforma via ${via}.`,
+      userId: user.id,
+      companyId: null,
+      ipAddress: req.ip ?? null,
+    });
+    return { user: publicUser(user), csrfToken: issueCsrfToken(res) };
+  }
+
+  if (vinculos.length === 0) {
+    throw Errors.forbidden('Você não tem vínculo ativo com nenhuma empresa. Fale com o responsável pela frota.');
+  }
+
+  if (vinculos.length > 1) {
+    await audit({
+      action: 'AUTH_LOGIN_SUCCESS',
+      description: `Credencial conferida via ${via}. Aguardando escolha entre ${vinculos.length} empresas.`,
+      userId: user.id,
+      companyId: null,
+      ipAddress: req.ip ?? null,
+    });
+    return {
+      requiresCompanySelection: true as const,
+      // Nunca o id cru do usuario: token assinado e curto, como no 2FA.
+      selectionToken: signStepToken({ purpose: 'empresa', sub: user.id }, AUDIENCIA_ESCOLHA),
+      companies: vinculos,
+      // Sugestao, nao decisao: a ultima frota usada aparece pre-selecionada.
+      suggestedCompanyId: vinculos.some((v) => v.companyId === user.tenantId) ? user.tenantId : null,
+    };
+  }
+
+  const unico = vinculos[0]!;
+  await issueSession(req, res, { id: user.id, role: unico.role, companyId: unico.companyId });
+  await prisma.user.update({ where: { id: user.id }, data: { tenantId: unico.companyId } });
 
   await audit({
     action: 'AUTH_LOGIN_SUCCESS',
-    description: `Login concluído via ${via}.`,
+    description: `Login concluído via ${via} na empresa ${unico.companyName}.`,
     userId: user.id,
-    companyId: user.tenantId,
+    companyId: unico.companyId,
     ipAddress: req.ip ?? null,
   });
 
-  return { user: publicUser(user), csrfToken: issueCsrfToken(res) };
+  return { user: publicUser(user), csrfToken: issueCsrfToken(res), company: unico };
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +341,98 @@ router.post('/2fa/login', authLimiter, validate({ body: twoFactorLoginSchema }),
 });
 
 // ---------------------------------------------------------------------------
+// Empresa ativa
+// ---------------------------------------------------------------------------
+
+/**
+ * Conclui o login de quem tem vinculo com mais de uma frota.
+ *
+ * A credencial ja foi conferida; o que falta e dizer em qual empresa entrar. O
+ * `selectionToken` prova isso sem expor o id do usuario e sem manter sessao
+ * aberta durante a escolha.
+ */
+router.post(
+  '/select-company',
+  authLimiter,
+  validate({
+    body: z.object({
+      selectionToken: z.string().min(10),
+      companyId: z.string().uuid('empresa inválida'),
+    }),
+  }),
+  async (req, res) => {
+    const { selectionToken, companyId } = req.valid.body as { selectionToken: string; companyId: string };
+    const claims = verifyStepToken(selectionToken, AUDIENCIA_ESCOLHA, 'empresa');
+
+    const user = await prisma.user.findUnique({
+      where: { id: String(claims.sub) },
+      select: { id: true, name: true, email: true, role: true, isActive: true },
+    });
+    if (!user || !user.isActive) throw Errors.unauthorized('Sessão inválida. Entre novamente.');
+
+    const papel = await papelNaEmpresa(user.id, companyId, user.role);
+    // Mesma mensagem para empresa inexistente e empresa sem vinculo: distinguir
+    // as duas transformaria esta rota num verificador de quais frotas existem.
+    if (!papel) throw Errors.forbidden('Você não tem vínculo ativo com esta empresa.');
+
+    await issueSession(req, res, { id: user.id, role: papel, companyId });
+    await prisma.user.update({ where: { id: user.id }, data: { tenantId: companyId } });
+
+    await audit({
+      action: 'AUTH_LOGIN_SUCCESS',
+      description: `Empresa escolhida no login. Papel nela: ${papel}.`,
+      userId: user.id,
+      companyId,
+      ipAddress: req.ip ?? null,
+    });
+
+    res.json({ user: publicUser(user), csrfToken: issueCsrfToken(res) });
+  },
+);
+
+/** Empresas em que a pessoa pode entrar. Usada pelo seletor do cabecalho. */
+router.get('/companies', authenticate, async (req, res) => {
+  res.json({ items: await vinculosAtivos(req.auth!.userId), currentCompanyId: req.auth!.tenantId });
+});
+
+/**
+ * Troca a frota ativa sem novo login.
+ *
+ * Isto e o que faz o motorista freelancer existir de verdade: de manha ele
+ * opera a frota A, a tarde a B, e o papel dele pode ser diferente em cada uma.
+ */
+router.post(
+  '/switch-company',
+  authenticate,
+  validate({ body: z.object({ companyId: z.string().uuid('empresa inválida') }) }),
+  async (req, res) => {
+    const { companyId } = req.valid.body as { companyId: string };
+    const auth = req.auth!;
+
+    if (companyId === auth.tenantId) {
+      return res.json({ csrfToken: issueCsrfToken(res), companyId });
+    }
+
+    const sessao = await prisma.session.findUnique({
+      where: { id: auth.sessionId },
+      select: { familyId: true },
+    });
+
+    await switchCompany(req, res, auth.userId, auth.role, companyId, sessao?.familyId ?? null);
+
+    await audit({
+      action: 'AUTH_LOGIN_SUCCESS',
+      description: `Troca de empresa ativa para ${companyId}.`,
+      userId: auth.userId,
+      companyId,
+      ipAddress: req.ip ?? null,
+    });
+
+    res.json({ csrfToken: issueCsrfToken(res), companyId });
+  },
+);
+
+// ---------------------------------------------------------------------------
 // Sessao
 // ---------------------------------------------------------------------------
 
@@ -326,26 +475,32 @@ router.get('/me', authenticate, async (req, res) => {
 
   const user = await prisma.user.findUnique({
     where: { id: auth.userId },
-    select: { id: true, name: true, email: true, role: true, tenantId: true },
+    select: { id: true, name: true, email: true },
   });
   if (!user) throw Errors.unauthorized('Sessão inválida.');
 
-  const company = user.tenantId
+  // Empresa e papel saem de `auth`, que leu a SESSAO e o vinculo. Ler
+  // `User.tenantId` aqui devolveria a frota errada para quem trabalha em duas.
+  const company = auth.tenantId
     ? await prisma.company.findUnique({
-        where: { id: user.tenantId },
+        where: { id: auth.tenantId },
         select: { id: true, name: true, tenantStatus: true, trialEndsAt: true },
       })
     : null;
+
+  const empresas = await vinculosAtivos(auth.userId);
 
   res.json({
     id: user.id,
     name: user.name,
     email: user.email,
-    role: user.role,
-    tenantId: user.tenantId,
-    // Permissoes vem do `authenticate`, que ja leu o vinculo atual no banco.
+    role: auth.role,
+    tenantId: auth.tenantId,
     permissions: auth.permissions,
+    contractStatus: auth.contractStatus,
     company,
+    // O front so mostra o seletor de frota quando ha mais de uma.
+    companies: empresas,
   });
 });
 
@@ -515,7 +670,14 @@ router.post(
     // Revoga tudo e reemite: quem trocou a senha continua logado neste
     // dispositivo, os demais precisam entrar de novo.
     await revokeAllUserSessions(user.id);
-    await issueSession(req, res, { id: user.id, role: user.role, tenantId: user.tenantId });
+    // Reemite na MESMA empresa em que a pessoa estava: trocar a senha nao pode
+    // jogar um freelancer para a outra frota sem ele perceber.
+    const papelAtual = await papelNaEmpresa(user.id, req.auth?.tenantId ?? null, user.role);
+    await issueSession(req, res, {
+      id: user.id,
+      role: papelAtual ?? user.role,
+      companyId: req.auth?.tenantId ?? null,
+    });
 
     await audit({
       action: 'AUTH_PASSWORD_RESET',

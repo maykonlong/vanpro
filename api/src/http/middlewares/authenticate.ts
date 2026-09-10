@@ -82,7 +82,7 @@ export const authenticate: RequestHandler = async (req: Request, res: Response, 
     const session = await runUnscoped('auth-session-check', () =>
       prisma.session.findUnique({
         where: { id: claims.sid },
-        select: { revokedAt: true, expiresAt: true, userId: true },
+        select: { revokedAt: true, expiresAt: true, userId: true, companyId: true },
       }),
     );
 
@@ -94,7 +94,7 @@ export const authenticate: RequestHandler = async (req: Request, res: Response, 
     const user = await runUnscoped('auth-user-check', () =>
       prisma.user.findUnique({
         where: { id: claims.sub },
-        select: { id: true, role: true, tenantId: true, isActive: true },
+        select: { id: true, role: true, isActive: true },
       }),
     );
 
@@ -103,20 +103,29 @@ export const authenticate: RequestHandler = async (req: Request, res: Response, 
       return next(Errors.forbidden('Este acesso foi desativado.'));
     }
 
-    // A role vem do BANCO, nao do token. Token so prova quem e; o que a pessoa
-    // pode fazer e estado atual, e promover/rebaixar precisa valer na hora.
+    // A EMPRESA ATIVA vem da SESSAO, nao do usuario.
+    //
+    // `User.tenantId` e um escalar: enquanto ele mandava, a mesma pessoa nunca
+    // conseguia alcancar a segunda frota, e o motorista freelancer — feature
+    // anunciada do produto — era impossivel por construcao.
+    const tenantId = session.companyId;
+
+    // Papel de PLATAFORMA por padrao. Dentro de uma frota, quem manda e o
+    // vinculo: alguem pode ser dono de uma e motorista de outra.
+    let papelEfetivo = user.role;
     let permissions: AuthState['permissions'] = {
-      canManageFinance: user.role === 'OWNER' || user.role === 'SUPER_ADMIN',
-      canManageHR: user.role === 'OWNER' || user.role === 'SUPER_ADMIN',
-      canManageRoutes: user.role === 'OWNER' || user.role === 'SUPER_ADMIN',
+      canManageFinance: user.role === 'SUPER_ADMIN',
+      canManageHR: user.role === 'SUPER_ADMIN',
+      canManageRoutes: user.role === 'SUPER_ADMIN',
     };
     let contractStatus = 'ACTIVE';
 
-    if (user.tenantId) {
+    if (tenantId) {
       const contract = await runUnscoped('auth-contract-check', () =>
         prisma.userCompany.findFirst({
-          where: { userId: user.id, companyId: user.tenantId! },
+          where: { userId: user.id, companyId: tenantId },
           select: {
+            role: true,
             status: true,
             canManageFinance: true,
             canManageHR: true,
@@ -135,17 +144,22 @@ export const authenticate: RequestHandler = async (req: Request, res: Response, 
         return next(Errors.forbidden('Seu acesso a esta empresa está suspenso.'));
       }
 
-      if (user.role === 'MANAGER') {
-        permissions = {
-          canManageFinance: contract.canManageFinance,
-          canManageHR: contract.canManageHR,
-          canManageRoutes: contract.canManageRoutes,
-        };
-      }
+      // Papel e permissoes SEMPRE do vinculo com a empresa ativa, lidos a cada
+      // requisicao. Promover ou rebaixar alguem passa a valer na hora, e nao no
+      // proximo login.
+      papelEfetivo = contract.role;
+      permissions =
+        contract.role === 'OWNER'
+          ? { canManageFinance: true, canManageHR: true, canManageRoutes: true }
+          : {
+              canManageFinance: contract.canManageFinance,
+              canManageHR: contract.canManageHR,
+              canManageRoutes: contract.canManageRoutes,
+            };
 
       const company = await runUnscoped('auth-company-check', () =>
         prisma.company.findUnique({
-          where: { id: user.tenantId! },
+          where: { id: tenantId },
           select: { tenantStatus: true, name: true },
         }),
       );
@@ -170,8 +184,8 @@ export const authenticate: RequestHandler = async (req: Request, res: Response, 
 
     req.auth = {
       userId: user.id,
-      role: user.role,
-      tenantId: user.tenantId,
+      role: papelEfetivo,
+      tenantId,
       sessionId: claims.sid,
       permissions,
       contractStatus,
@@ -180,9 +194,9 @@ export const authenticate: RequestHandler = async (req: Request, res: Response, 
     // Publica o tenant no contexto: e daqui que o guard do Prisma le.
     const ctx = getContext();
     if (ctx) {
-      ctx.tenantId = user.tenantId;
+      ctx.tenantId = tenantId;
       ctx.userId = user.id;
-      ctx.role = user.role;
+      ctx.role = papelEfetivo;
     }
 
     next();

@@ -121,10 +121,11 @@ router.post(
       });
     });
 
+    // Empresa recem-criada: e a unica que existe para este usuario.
     await issueSession(req, res, {
       id: resultado.user.id,
       role: resultado.user.role,
-      tenantId: resultado.user.tenantId,
+      companyId: resultado.user.tenantId,
     });
     const csrfToken = issueCsrfToken(res);
 
