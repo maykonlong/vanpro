@@ -565,8 +565,23 @@ router.delete('/sessions/:id', authenticate, validate({ params: uuidParam() }), 
 // Recuperacao de senha
 // ---------------------------------------------------------------------------
 
+/**
+ * A mensagem diz a VERDADE, e diz a mesma coisa para e-mail cadastrado ou nao.
+ *
+ * A versao anterior prometia "enviaremos as instrucoes em instantes" — e nao ha
+ * provedor de e-mail neste produto. A pessoa que esqueceu a senha ficava
+ * esperando uma mensagem que nunca chegaria, e a unica saida real (pedir ao dono
+ * da frota) nao era dita em lugar nenhum. Prometer envio e nao enviar e a mesma
+ * classe do "salvo!" sem ter salvado.
+ *
+ * O texto e identico nos dois casos, que e o que impede a rota de virar
+ * verificador de e-mails cadastrados. O que mudou foi o conteudo, nao a
+ * uniformidade.
+ */
 const FORGOT_MESSAGE =
-  'Se este e-mail estiver cadastrado, enviaremos as instruções de redefinição em instantes.';
+  'Esta versão não envia e-mail. Se este e-mail estiver cadastrado, o link de redefinição foi ' +
+  'gerado e vale 1 hora — peça ao responsável pela frota (ou ao suporte) que o entregue a você. ' +
+  'Ele consegue gerar um acesso novo pela tela de Equipe.';
 
 router.post(
   '/forgot-password',

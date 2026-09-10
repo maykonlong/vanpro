@@ -54,5 +54,7 @@ if [ "$SEM_DATA" -gt 0 ]; then
   echo "conta e ninguem volta a olhar para ele. Nao falha o build; aparece."
 fi
 
-printf '[32mok[0m     %d de %d risco(s) com prazo verificavel, nenhum vencido
+# Dois numeros, e nao um: uma secao pode declarar varios prazos (um por item
+# aceito dentro dela). Dizer "11 de 6" seria pior que nao contar.
+printf '[32mok[0m     %d prazo(s) verificavel(is) em %d risco(s) declarado(s), nenhum vencido
 ' "$TOTAL" "$SECOES"
