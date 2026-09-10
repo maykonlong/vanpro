@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { prisma } from '../../src/lib/prisma';
 import { runUnscoped } from '../../src/lib/request-context';
@@ -161,34 +162,75 @@ describe('resposta de erro', () => {
 });
 
 describe('empresa suspensa', () => {
-  it('recebe 402 em toda rota autenticada, de leitura ou de escrita', async () => {
-    const dono = await autenticar('dono.alfa@teste.com.br');
-    expect((await dono.get('/api/v1/students')).status).toBe(200);
-
+  /**
+   * Suspensao por inadimplencia e SOMENTE LEITURA, nao porta fechada.
+   *
+   * A regra anterior recusava toda requisicao autenticada, inclusive GET. Isso
+   * significava que, no dia em que o teste do dono vencia, a mae deixava de ver
+   * onde estava a van com o filho dentro, e o proprio dono perdia a tela que
+   * mostra a fatura que precisa pagar para voltar. Cobranca e assunto entre o
+   * VanPro e o dono da frota; nao pode deixar crianca sem acompanhamento nem
+   * apagar a jornada de quem trabalhou.
+   */
+  async function suspender() {
     await runUnscoped('fixture', () =>
       prisma.company.update({
         where: { id: alfa.id },
         data: { tenantStatus: 'SUSPENDED', suspendedAt: new Date() },
       }),
     );
+  }
+
+  it('mantem a leitura funcionando', async () => {
+    const dono = await autenticar('dono.alfa@teste.com.br');
+    expect((await dono.get('/api/v1/students')).status).toBe(200);
+
+    await suspender();
 
     for (const rota of ['/api/v1/students', '/api/v1/vehicles', '/api/v1/auth/me', '/api/v1/company/me']) {
-      const res = await dono.get(rota);
-      expect(res.status, `GET ${rota}`).toBe(402);
-      expect(res.body.error.code).toBe('ACCOUNT_SUSPENDED');
+      expect((await dono.get(rota)).status, `GET ${rota}`).toBe(200);
     }
+  });
+
+  it('bloqueia escrita de gestao com 402 e nao grava nada', async () => {
+    const dono = await autenticar('dono.alfa@teste.com.br');
+    await suspender();
 
     const escrita = await dono.post('/api/v1/students', { ...ALUNO, name: 'Nao Deveria Entrar' });
     expect(escrita.status).toBe(402);
+    expect(escrita.body.error.code).toBe('ACCOUNT_SUSPENDED');
 
     const nenhum = await runUnscoped('check', () =>
       prisma.$queryRaw<Array<{ n: bigint }>>`SELECT count(*) AS n FROM "Student"`,
     );
     expect(Number(nenhum[0]!.n)).toBe(0);
+  });
 
-    // A empresa vizinha nao e afetada pela suspensao desta.
+  it('deixa passar as escritas essenciais: ponto, check-in e direitos do titular', async () => {
+    const dono = await autenticar('dono.alfa@teste.com.br');
+    const aluno = await dono.post('/api/v1/students', ALUNO);
+    expect(aluno.status).toBe(201);
+
+    await suspender();
+
+    // Check-in: e o que avisa o responsavel que a crianca embarcou.
+    const checkin = await dono.patch(`/api/v1/students/${aluno.body.id}/checkin`, { status: 'BOARDED' });
+    expect(checkin.status, 'check-in precisa passar com a empresa suspensa').toBe(200);
+
+    // Direito do titular nao depende de o cliente estar em dia com o SaaS.
+    expect((await dono.get('/api/v1/privacy/my-data')).status).toBe(200);
+
+    // Ponto: recusa por regra de negocio (sem motorista/veiculo aqui) e aceitavel;
+    // o que NAO pode acontecer e ser barrado pela suspensao.
+    const ponto = await dono.post('/api/v1/timecards/punch', { type: 'CLOCK_IN', vehicleId: crypto.randomUUID() });
+    expect(ponto.status, 'ponto nao pode ser barrado por inadimplencia').not.toBe(402);
+  });
+
+  it('nao afeta a empresa vizinha', async () => {
+    await suspender();
     const donoBeta = await autenticar('dono.beta@teste.com.br');
     expect((await donoBeta.get('/api/v1/students')).status).toBe(200);
+    expect((await donoBeta.post('/api/v1/students', ALUNO)).status).toBe(201);
   });
 });
 

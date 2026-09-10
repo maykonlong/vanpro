@@ -227,7 +227,7 @@ router.post('/login', authLimiter, validate({ body: loginSchema }), async (req, 
 
   // Expiracao so depois de a senha bater: cobrar antes responderia diferente
   // para conta existente com senha vencida e entregaria a existencia de graca.
-  if (isPasswordExpired(user.passwordUpdatedAt)) {
+  if (isPasswordExpired(user.passwordUpdatedAt, user.role)) {
     throw Errors.passwordExpired();
   }
 

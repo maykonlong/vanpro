@@ -39,7 +39,34 @@ export async function dummyCompare(plain: string): Promise<void> {
   await bcrypt.compare(plain, DUMMY_HASH);
 }
 
-export function isPasswordExpired(passwordUpdatedAt: Date, now = new Date()): boolean {
+/**
+ * Papeis sujeitos a expiracao periodica de senha.
+ *
+ * A regra vale para quem administra a frota — quem ve faturamento, folha e
+ * dados de todas as criancas. Nao vale para responsavel, motorista e monitor.
+ *
+ * Duas razoes. A primeira e que rotacao periodica obrigatoria, sem indicio de
+ * comprometimento, e desaconselhada desde a NIST SP 800-63B: ela empurra o
+ * usuario para senha previsivel com sufixo incremental e para o papelzinho na
+ * gaveta. A segunda e operacional: uma mae que abre o aplicativo uma vez por
+ * mes para ver onde esta a van encontraria a conta trancada justamente no dia
+ * em que precisa dela. O ganho de segurança nesse grupo e teorico; o custo e
+ * concreto.
+ *
+ * Para quem tem acesso administrativo o calculo se inverte, e a exigencia fica.
+ */
+const PAPEIS_COM_EXPIRACAO = new Set(['SUPER_ADMIN', 'OWNER', 'MANAGER']);
+
+export function papelExigeRotacaoDeSenha(role: string): boolean {
+  return PAPEIS_COM_EXPIRACAO.has(role);
+}
+
+export function isPasswordExpired(
+  passwordUpdatedAt: Date,
+  role: string,
+  now = new Date(),
+): boolean {
+  if (!papelExigeRotacaoDeSenha(role)) return false;
   const ageMs = now.getTime() - passwordUpdatedAt.getTime();
   return ageMs > PASSWORD_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
 }

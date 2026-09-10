@@ -126,7 +126,7 @@ describe('login', () => {
     expect(segunda!.lockedUntil!.getTime() - Date.now()).toBeGreaterThan(primeiraJanela);
   });
 
-  it('recusa senha vencida (90 dias) mesmo com a senha correta', async () => {
+  it('recusa senha vencida (90 dias) de quem administra a frota', async () => {
     await runUnscoped('fixture', () =>
       prisma.user.update({
         where: { email: 'dono.alfa@teste.com.br' },
@@ -138,6 +138,36 @@ describe('login', () => {
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('PASSWORD_EXPIRED');
     expect(cookie(res, 'access_token')).toBeNull();
+  });
+
+  /**
+   * Rotacao periodica obrigatoria e desaconselhada pela NIST SP 800-63B quando
+   * nao ha indicio de comprometimento — ela produz senha previsivel com sufixo
+   * incremental. Para quem administra a frota o risco justifica o custo; para o
+   * responsavel, que abre o aplicativo uma vez por mes so para ver onde esta a
+   * van, a conta trancada aparece justamente no dia em que ele precisa dela.
+   */
+  it('nao expira a senha de responsavel, motorista e monitor', async () => {
+    const empresa = await criarEmpresa('Expira Nao', '77888999000122');
+    const papeis = [
+      ['PARENT', 'pai.expira@teste.com.br'],
+      ['DRIVER', 'motorista.expira@teste.com.br'],
+      ['ASSISTANT', 'monitor.expira@teste.com.br'],
+    ] as const;
+
+    for (const [papel, email] of papeis) {
+      await criarUsuario(empresa, papel, email);
+      await runUnscoped('fixture', () =>
+        prisma.user.update({
+          where: { email },
+          data: { passwordUpdatedAt: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000) },
+        }),
+      );
+
+      const res = await new Cliente().login(email);
+      expect(res.status, `${papel} com senha antiga deveria entrar`).toBe(200);
+      expect(cookie(res, 'access_token')).not.toBeNull();
+    }
   });
 
   it('zera o contador de falhas quando o login enfim da certo', async () => {

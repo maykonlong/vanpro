@@ -27,6 +27,39 @@ declare global {
   }
 }
 
+const METODOS_DE_LEITURA = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function ehLeitura(req: Request): boolean {
+  return METODOS_DE_LEITURA.has(req.method);
+}
+
+/**
+ * Escritas que continuam permitidas com a empresa suspensa.
+ *
+ * O criterio nao e "o que da menos trabalho liberar", e sim: sem esta escrita,
+ * alguem fica sem protecao ou perde um direito.
+ *
+ *   ponto      — a jornada de quem trabalhou naquele dia e registro trabalhista.
+ *                Nao registrar apaga prova a favor do empregado.
+ *   check-in   — e o que diz ao responsavel que a crianca embarcou e desceu.
+ *   incidente  — aviso de emergencia para as familias da rota.
+ *   privacidade— direito do titular (LGPD Art. 18) nao depende de o cliente
+ *                estar em dia com a mensalidade do SaaS.
+ *   sessao     — trocar a propria senha e encerrar sessao seguem valendo.
+ */
+const ESCRITAS_ESSENCIAIS: RegExp[] = [
+  /^\/api\/v1\/timecards\/punch$/,
+  /^\/api\/v1\/students\/[^/]+\/checkin$/,
+  /^\/api\/v1\/crm\/incidents\/broadcast$/,
+  /^\/api\/v1\/privacy\//,
+  /^\/api\/v1\/auth\//,
+];
+
+function ehOperacaoEssencial(req: Request): boolean {
+  const caminho = req.originalUrl.split('?')[0] ?? '';
+  return ESCRITAS_ESSENCIAIS.some((re) => re.test(caminho));
+}
+
 /**
  * Autenticacao.
  *
@@ -110,7 +143,6 @@ export const authenticate: RequestHandler = async (req: Request, res: Response, 
         };
       }
 
-      // Empresa inadimplente/expirada: leitura continua, escrita para.
       const company = await runUnscoped('auth-company-check', () =>
         prisma.company.findUnique({
           where: { id: user.tenantId! },
@@ -119,7 +151,20 @@ export const authenticate: RequestHandler = async (req: Request, res: Response, 
       );
 
       if (company?.tenantStatus === 'SUSPENDED' && user.role !== 'SUPER_ADMIN') {
-        return next(Errors.suspended(company.name));
+        // Empresa suspensa vira SOMENTE LEITURA, e nao porta fechada.
+        //
+        // A versao anterior recusava toda requisicao autenticada, inclusive GET,
+        // apesar de o proprio comentario prometer "leitura continua". Na pratica
+        // isso significava que, no dia em que o teste do dono vencia, a mae
+        // deixava de ver onde estava a van com o filho dentro, e o dono perdia
+        // ate a tela que mostra a fatura que ele precisa pagar para voltar.
+        //
+        // Cobranca e um problema entre o VanPro e o dono da frota. Ela nao pode
+        // deixar uma crianca sem acompanhamento nem apagar a jornada de quem
+        // trabalhou naquele dia.
+        if (!ehLeitura(req) && !ehOperacaoEssencial(req)) {
+          return next(Errors.suspended(company.name));
+        }
       }
     }
 
