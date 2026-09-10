@@ -71,7 +71,6 @@ export function PlatformPanel() {
                 [
                   ['Cobrança', flags.data.billing],
                   ['WhatsApp', flags.data.whatsapp],
-                  ['Mapas', flags.data.maps],
                 ] as const
               ).map(([nome, ligado]) => (
                 <li key={nome}>

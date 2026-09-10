@@ -31,38 +31,18 @@ jobs:
     name: API — tipos, testes e migrations
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: vanpro
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: vanpro_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U vanpro"
-          --health-interval 5s --health-timeout 5s --health-retries 20
-      redis:
-        image: redis:7-alpine
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 3s --health-retries 10
-
+    # Sem bloco `services:`, de proposito.
+    #
+    # O `services:` do GitHub sobe um Postgres em texto claro, com um usuario
+    # dono de tudo. Producao roda com TLS obrigatorio e com um papel de runtime
+    # sem DDL — entao o CI estaria exercitando um caminho que nao existe mais,
+    # e o caminho que existe nunca seria exercitado. Aqui sobe o MESMO compose,
+    # com o mesmo `pg_hba`, os mesmos papeis e os mesmos certificados.
+    #
+    # Segredos tambem deixam de ser digitados aqui: sao gerados pelo mesmo
+    # script que o desenvolvedor roda. Se ele quebrar, quebra no CI tambem.
     env:
       NODE_ENV: test
-      APP_ENV: local
-      DATABASE_URL: postgresql://vanpro:ci@localhost:5432/vanpro_test?schema=public
-      REDIS_URL: redis://localhost:6379
-      # Segredos de CI sao efemeros e publicos de proposito: nada real trafega
-      # aqui, e usar secret de verdade em PR de fork e como vazar de graca.
-      JWT_ACCESS_SECRET: ci_access_secret_com_mais_de_32_caracteres_ok_1
-      JWT_REFRESH_SECRET: ci_refresh_secret_com_mais_de_32_caracteres_ok_2
-      PRISMA_FIELD_ENCRYPTION_KEY: k1.aesgcm256.Yb3EJ0nJvVpXKX0zLmQ8kx7dRk9wCq2sTt5uHn1aZ4E=
-      FRONTEND_URL: http://localhost:5173
-      WEBAUTHN_RP_ID: localhost
-      WEBAUTHN_ORIGIN: http://localhost:5173
-      ENABLE_CRON: 'false'
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -73,19 +53,48 @@ jobs:
           cache: npm
           cache-dependency-path: api/package-lock.json
 
-      # `npm ci`, nunca `npm install`: respeita o lockfile e nao promove versao
-      # sozinho. Mais da metade dos incidentes em Node hoje vem de dependencia.
-      # Contra qual Postgres a suite rodou, de verdade.
-      #
-      # O cliente do runner e o servidor do service container sao versoes
-      # independentes, e a diferenca entre elas aparece como "500 sem motivo"
-      # num teste que passa na maquina de quem escreveu. Duas linhas de log
-      # transformam isso em diagnostico.
-      - name: Versao do Postgres (cliente e servidor)
+      # Segredos e certificados sao GERADOS, nunca versionados, pelo mesmo
+      # script que roda na maquina do desenvolvedor. Se ele quebrar, quebra aqui
+      # — e nao no dia em que alguem tenta subir a stack pela primeira vez.
+      - name: Gerar segredos e certificados
         run: |
-          psql --version
-          PGPASSWORD=ci psql -h localhost -U vanpro -d vanpro_test -tAc 'select version()'
+          node infra/scripts/gen-secrets.mjs --write
+          bash infra/scripts/gerar-certificados.sh
 
+      - name: Subir banco e cache pelo compose de producao
+        run: |
+          docker compose up -d postgres redis
+          for _ in $(seq 1 40); do
+            estado=$(docker inspect -f '{{.State.Health.Status}}' vanpro-postgres 2>/dev/null || echo iniciando)
+            [ "$estado" = healthy ] && break
+            sleep 3
+          done
+          docker compose ps
+          docker exec vanpro-postgres psql -U postgres -tAc 'select version()'
+
+      # Prova que TLS obrigatorio e menor privilegio EXISTEM, e nao apenas
+      # constam do arquivo de configuracao. Sem esta medicao, "o banco exige
+      # TLS" seria afirmacao nao verificada — e o CI e o unico lugar que roda
+      # em toda mudanca.
+      - name: Banco recusa conexao em claro e o papel de runtime nao tem DDL
+        run: |
+          SENHA_APP=$(grep -E '^POSTGRES_APP_PASSWORD=' .env | cut -d= -f2- | tr -d '"')
+
+          if docker exec vanpro-postgres psql "postgresql://vanpro_app:$SENHA_APP@127.0.0.1:5432/vanpro?sslmode=disable" -c 'select 1' 2>&1 | grep -q 'no encryption'; then
+            echo 'ok: conexao sem TLS recusada pelo pg_hba'
+          else
+            echo 'FALHA: o banco aceitou conexao em claro'; exit 1
+          fi
+
+          if docker exec vanpro-postgres psql -U postgres -d vanpro -c 'SET ROLE vanpro_app; CREATE TABLE guarda_ci(x int);' 2>&1 | grep -q 'permission denied'; then
+            echo 'ok: vanpro_app nao consegue criar tabela'
+          else
+            echo 'FALHA: o papel de runtime tem DDL'; exit 1
+          fi
+
+      # `npm ci`, nunca `npm install`: respeita o lockfile e nao resolve versao
+      # nova sozinho. Mais da metade dos incidentes em Node hoje vem de
+      # dependencia comprometida.
       - name: Instalar dependencias
         working-directory: ./api
         run: npm ci
@@ -109,13 +118,16 @@ jobs:
       - name: Migrations em dia com o schema
         working-directory: ./api
         run: |
-          export PGPASSWORD=ci
-          psql -h localhost -U vanpro -d postgres -c 'DROP DATABASE IF EXISTS vanpro_shadow'
-          psql -h localhost -U vanpro -d postgres -c 'CREATE DATABASE vanpro_shadow'
+          # Recriar o banco de sombra exige DDL, que o papel de runtime de
+          # proposito nao tem. Quem faz isso e o superusuario, de dentro do
+          # container — como no ambiente real.
+          docker exec vanpro-postgres psql -U postgres -c 'DROP DATABASE IF EXISTS vanpro_shadow'
+          docker exec vanpro-postgres psql -U postgres -c 'CREATE DATABASE vanpro_shadow OWNER vanpro_owner'
+          SENHA=$(grep -E '^POSTGRES_OWNER_PASSWORD=' ../.env | cut -d= -f2- | tr -d '"')
           npx prisma migrate diff \
             --from-migrations prisma/migrations \
             --to-schema-datamodel prisma/schema.prisma \
-            --shadow-database-url "postgresql://vanpro:ci@localhost:5432/vanpro_shadow?schema=public" \
+            --shadow-database-url "postgresql://vanpro_owner:$SENHA@localhost:5433/vanpro_shadow?schema=public&sslmode=require&sslcert=../infra/certs/db/ca.crt&sslaccept=strict" \
             --exit-code
 
       - name: Build

@@ -91,3 +91,62 @@ Sem mock de banco: fixture testa a unidade, só o banco de verdade testa o siste
 Todo módulo entrega, no mínimo: caminho feliz, borda, negação por papel e
 **tentativa de acesso cruzado entre empresas** (o teste que a versão anterior
 não tinha e que teria pego o vazamento do DRE).
+
+---
+
+## Topologia de produção (e a stack local é a mesma)
+
+Não existe "modo local" com travas afrouxadas. O `docker-compose.yml` sobe com
+`APP_ENV=production`, e `api/src/config/env.ts` recusa o boot se qualquer uma
+das exigências abaixo faltar. O que se prova aqui é o que vale no servidor.
+
+```
+navegador
+  │  TLS 1.2/1.3 · HSTS 2 anos · certificado da CA local (ou pública, no servidor)
+  ▼
+nginx (não-root, 8080 → 301, aplicação em 8443)
+  │  CSP/XFO/Referrer/Permissions-Policy num único vanpro-seguranca.conf
+  │  X-Forwarded-Proto: https  ← fixo, não $scheme: é o que decide Secure no cookie
+  ▼
+api (não-root, filesystem read-only, cap_drop ALL)
+  │  TLS verificado: sslmode=require + sslaccept=strict + sslcert=<CA>
+  │  papel vanpro_app — SELECT/INSERT/UPDATE/DELETE, e nada mais
+  ▼
+postgres (ssl=on · pg_hba recusa hostnossl · scram-sha-256)
+       ▲
+       │  papel vanpro_owner — dono do schema, só o serviço `migrate` o usa
+   migrate (execução única, termina antes de a API subir)
+```
+
+### Três papéis no banco, e o motivo de cada um
+
+| Papel | Alcance | Por quê |
+|---|---|---|
+| `postgres` | só socket unix, dentro do contêiner | superusuário existe, mas o `pg_hba` o recusa pela rede |
+| `vanpro_owner` | DDL, `CREATEDB` | migrations e o banco descartável do `backup.sh --verificar` |
+| `vanpro_app` | DML no schema `public` | é o que a API usa. Uma injeção de SQL bem-sucedida **lê** dado; não apaga o schema |
+
+O privilégio do `vanpro_app` vem de `ALTER DEFAULT PRIVILEGES` — tabela criada
+por migration já nasce com o `GRANT` certo. A alternativa (rodar `GRANT` depois
+de cada migration) é um passo que se esquece exatamente uma vez, e o sintoma é
+a API inteira em erro de permissão.
+
+### Coerência entre o pool e o `max_connections`
+
+`max_connections=100` no PostgreSQL contra `connection_limit=15` no Prisma da
+API, `5` no `migrate` (transitório), ~10 da suíte de testes rodando no host e o
+`psql` do operador: ~35 no pico. O resto é folga para um incidente. Número
+grande demais não é generosidade — é um limite que nunca avisa antes de a
+máquina começar a paginar.
+
+### Duas grafias para a mesma exigência de TLS
+
+O Prisma fala `sslmode=require&sslaccept=strict&sslcert=…`; o `libpq` (psql,
+pg_dump, e portanto o `backup.sh`) fala `sslmode=verify-full&sslrootcert=…`.
+Trocar uma pela outra não dá erro de sintaxe: dá uma conexão mais fraca do que
+se pensa. O `env.ts` valida a grafia do Prisma explicitamente porque o padrão
+da biblioteca para `sslaccept` é `accept_invalid_certs` — o silêncio, ali, vale
+pelo valor frouxo.
+
+Detalhe de criptografia (o que é cifrado, o que não é, rotação de chave):
+[`CRIPTOGRAFIA.md`](CRIPTOGRAFIA.md).

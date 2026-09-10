@@ -31,7 +31,7 @@ export function ForgotPassword() {
       title="Esqueci minha senha"
       subtitle="Informe o e-mail da conta. A resposta é a mesma para e-mail cadastrado ou não — e assim que a tela deixa de ser um verificador de cadastro."
       footer={
-        <Link to="/entrar" className="inline-flex min-h-[44px] items-center text-brand-400 underline">
+        <Link to="/entrar" className="inline-flex min-h-[44px] items-center text-brand-600 underline">
           Voltar para o login
         </Link>
       }
@@ -41,7 +41,7 @@ export function ForgotPassword() {
         <SuccessNote message={result?.message ?? null} />
 
         {result?.devLink ? (
-          <p className="rounded-lg border border-warn-400/40 bg-amber-950/40 px-3 py-2 text-sm text-warn-400">
+          <p className="rounded-lg border border-warn-400/40 bg-warn-soft px-3 py-2 text-sm text-warn-400">
             Ambiente local sem provedor de e-mail. Link de redefinição:{' '}
             <a className="underline" href={result.devLink}>
               abrir redefinição

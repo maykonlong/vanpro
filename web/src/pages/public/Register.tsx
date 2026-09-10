@@ -69,7 +69,7 @@ export function Register() {
       footer={
         <p>
           Já tem conta?{' '}
-          <Link to="/entrar" className="text-brand-400 underline">
+          <Link to="/entrar" className="text-brand-600 underline">
             Entrar
           </Link>
         </p>
@@ -152,7 +152,7 @@ export function Register() {
 
         <p className="text-xs text-ink-400">
           Ao criar a conta você concorda com o tratamento de dados descrito na{' '}
-          <Link to="/privacidade" className="text-brand-400 underline">
+          <Link to="/privacidade" className="text-brand-600 underline">
             Política de Privacidade
           </Link>
           .

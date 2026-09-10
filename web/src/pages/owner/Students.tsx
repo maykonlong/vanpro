@@ -68,8 +68,11 @@ function toForm(student: Student): FormState {
 }
 
 export function Students() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, hasRole } = useAuth();
   const podeEditar = hasPermission('canManageRoutes');
+  // Excluir aluno é exclusivo do proprietário no servidor. Mostrar o botão a
+  // quem vai levar 403 é oferecer uma ação que não existe.
+  const podeExcluir = hasRole('OWNER');
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -152,22 +155,25 @@ export function Students() {
     }
   };
 
-  if (!podeEditar) {
-    return (
-      <div>
-        <PageHeader title="Alunos" />
-        <PermissionNotice area="Cadastro de alunos" />
-      </div>
-    );
-  }
-
   return (
     <div>
       <PageHeader
         title="Alunos"
         description="Cadastro, mensalidade, consentimentos de LGPD e foto."
-        actions={<Button onClick={openCreate}>Novo aluno</Button>}
+        actions={podeEditar ? <Button onClick={openCreate}>Novo aluno</Button> : undefined}
       />
+
+      {/*
+        Sem a permissão de rotas a LISTA continua visível — o servidor libera a
+        leitura para toda a gestão. Some apenas o que ela não pode fazer, com a
+        explicação do porquê. Esconder a tela inteira faria a gestora achar que
+        a empresa não tem aluno nenhum cadastrado.
+      */}
+      {!podeEditar ? (
+        <div className="mb-4">
+          <PermissionNotice area="O cadastro de alunos" flag="canManageRoutes" />
+        </div>
+      ) : null}
 
       <Card className="mb-4">
         <form
@@ -213,7 +219,7 @@ export function Students() {
           icon={<Users size={30} />}
           title="Nenhum aluno cadastrado"
           description="Cadastre o primeiro aluno para gerar mensalidades, montar a lista de embarque e habilitar o acompanhamento do responsável."
-          action={<Button onClick={openCreate}>Cadastrar aluno</Button>}
+          action={podeEditar ? <Button onClick={openCreate}>Cadastrar aluno</Button> : undefined}
         />
       ) : null}
 
@@ -253,12 +259,16 @@ export function Students() {
                     <Badge tone={student.status === 'ABSENT' ? 'bad' : 'neutral'}>
                       {label.studentStatus(student.status)}
                     </Badge>
-                    <Button variant="secondary" onClick={() => openEdit(student)}>
-                      Editar
-                    </Button>
-                    <Button variant="danger" onClick={() => setRemoving(student)}>
-                      Excluir
-                    </Button>
+                    {podeEditar ? (
+                      <Button variant="secondary" onClick={() => openEdit(student)}>
+                        Editar<span className="sr-only"> {student.name}</span>
+                      </Button>
+                    ) : null}
+                    {podeExcluir ? (
+                      <Button variant="danger" onClick={() => setRemoving(student)}>
+                        Excluir<span className="sr-only"> {student.name}</span>
+                      </Button>
+                    ) : null}
                   </div>
                 </Card>
               </li>

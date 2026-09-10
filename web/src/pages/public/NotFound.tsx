@@ -7,7 +7,7 @@ export function NotFound() {
       title="404 — página não encontrada"
       subtitle="O endereço digitado não existe neste sistema."
       footer={
-        <Link to="/" className="inline-flex min-h-[44px] items-center text-brand-400 underline">
+        <Link to="/" className="inline-flex min-h-[44px] items-center text-brand-600 underline">
           Voltar para a página inicial
         </Link>
       }

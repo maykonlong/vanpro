@@ -458,7 +458,11 @@ model IncidentAlert {
   id          String   @id @default(uuid())
   companyId   String
   title       String
-  description String
+  /// Cifrado em repouso: e texto livre escrito no calor da ocorrencia, e na
+  /// pratica traz nome de crianca, endereco e estado de saude ("Lucas passou
+  /// mal na esquina da Haddock Lobo"). O titulo fica em claro de proposito —
+  /// e rotulo curto, e a listagem precisa ordenar e filtrar por ele.
+  description String /// @encrypted
   severity    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
   createdById String?
   createdAt   DateTime @default(now())

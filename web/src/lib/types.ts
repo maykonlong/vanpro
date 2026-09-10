@@ -358,10 +358,17 @@ export interface AuditTrail extends Paginated<AuditEntry> {
   chainIntegrity: unknown;
 }
 
+/**
+ * Integrações ligadas no ambiente (`GET /health/features`).
+ *
+ * Espelha EXATAMENTE o que a rota devolve hoje. Já houve aqui um terceiro
+ * campo `maps` que a API nunca enviou: a tela mostrava "Mapas: não
+ * configurada" para uma integração que não existe no contrato, o que é
+ * inventar ausência com a mesma leviandade com que se inventaria presença.
+ */
 export interface FeatureFlags {
   billing: boolean;
   whatsapp: boolean;
-  maps: boolean;
 }
 
 export interface VehiclePosition {

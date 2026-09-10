@@ -40,8 +40,10 @@ function toLocalInput(iso: string): string {
 }
 
 export function Charters() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, hasRole } = useAuth();
   const podeGerir = hasPermission('canManageRoutes');
+  // Excluir fretamento é exclusivo do proprietário no servidor.
+  const podeExcluir = hasRole('OWNER');
 
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('');
@@ -156,22 +158,24 @@ export function Charters() {
     }
   };
 
-  if (!podeGerir) {
-    return (
-      <div>
-        <PageHeader title="Fretamentos" />
-        <PermissionNotice area="Fretamentos" />
-      </div>
-    );
-  }
-
   return (
     <div>
       <PageHeader
         title="Fretamentos"
         description="Agenda dos contratos avulsos. A atribuição confere sobreposição de veículo e motorista dentro de transação."
-        actions={<Button onClick={openCreate}>Novo fretamento</Button>}
+        actions={podeGerir ? <Button onClick={openCreate}>Novo fretamento</Button> : undefined}
       />
+
+      {/*
+        A AGENDA continua visível sem a permissão de rotas: o servidor libera a
+        leitura para toda a gestão, e uma tela vazia faria parecer que não há
+        contrato marcado. O que some é a edição — com o motivo escrito.
+      */}
+      {!podeGerir ? (
+        <div className="mb-4">
+          <PermissionNotice area="A gestão de fretamentos" flag="canManageRoutes" />
+        </div>
+      ) : null}
 
       <Card className="mb-4">
         <div className="w-56">
@@ -203,7 +207,7 @@ export function Charters() {
           icon={<CalendarRange size={30} />}
           title="Nenhum fretamento na agenda"
           description="Cadastre o contrato com data de início e fim; depois atribua veículo e motorista. Conflito de escala é recusado com a explicação de qual contrato já ocupa o recurso."
-          action={<Button onClick={openCreate}>Cadastrar fretamento</Button>}
+          action={podeGerir ? <Button onClick={openCreate}>Cadastrar fretamento</Button> : undefined}
         />
       ) : null}
 
@@ -241,40 +245,48 @@ export function Charters() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setVehicleId(c.vehicleId ?? '');
-                        setDriverId(c.driverId ?? '');
-                        assign.reset();
-                        setAssigning(c);
-                      }}
-                      disabled={c.status === 'COMPLETED' || c.status === 'CANCELED'}
-                    >
-                      Atribuir
-                    </Button>
-                    <Button variant="secondary" onClick={() => openEdit(c)}>
-                      Editar
-                    </Button>
-                    {TRANSICOES[c.status].map((next) => (
-                      <Button
-                        key={next}
-                        variant={next === 'CANCELED' ? 'danger' : 'primary'}
-                        loading={changeStatus.pending}
-                        onClick={() => void onStatus(c, next)}
-                      >
-                        {next === 'IN_PROGRESS'
-                          ? 'Iniciar'
-                          : next === 'COMPLETED'
-                            ? 'Concluir'
-                            : 'Cancelar'}
-                      </Button>
-                    ))}
-                    <Button variant="ghost" onClick={() => setRemoving(c)}>
-                      Excluir
-                    </Button>
-                  </div>
+                  {podeGerir || podeExcluir ? (
+                    <div className="flex flex-wrap gap-2">
+                      {podeGerir ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            setVehicleId(c.vehicleId ?? '');
+                            setDriverId(c.driverId ?? '');
+                            assign.reset();
+                            setAssigning(c);
+                          }}
+                          disabled={c.status === 'COMPLETED' || c.status === 'CANCELED'}
+                        >
+                          Atribuir<span className="sr-only"> veículo e motorista a {c.title}</span>
+                        </Button>
+                      ) : null}
+                      {podeGerir ? (
+                        <Button variant="secondary" onClick={() => openEdit(c)}>
+                          Editar<span className="sr-only"> {c.title}</span>
+                        </Button>
+                      ) : null}
+                      {(podeGerir ? TRANSICOES[c.status] : []).map((next) => (
+                        <Button
+                          key={next}
+                          variant={next === 'CANCELED' ? 'danger' : 'primary'}
+                          loading={changeStatus.pending}
+                          onClick={() => void onStatus(c, next)}
+                        >
+                          {next === 'IN_PROGRESS'
+                            ? 'Iniciar'
+                            : next === 'COMPLETED'
+                              ? 'Concluir'
+                              : 'Cancelar'}
+                        </Button>
+                      ))}
+                      {podeExcluir ? (
+                        <Button variant="ghost" onClick={() => setRemoving(c)}>
+                          Excluir<span className="sr-only"> {c.title}</span>
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </Card>
               </li>
             ))}

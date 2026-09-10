@@ -25,7 +25,21 @@ import {
 import { plateError } from '../../lib/validators';
 import type { Driver, Paginated, Shift, Vehicle, VehicleStatus } from '../../lib/types';
 
-function Veiculos() {
+/**
+ * Veículos.
+ *
+ * `podeGerir` (canManageRoutes) libera criar/editar/remover; `podeAtualizarKm`
+ * cobre o odômetro, que o servidor também abre ao motorista. A LISTA nunca é
+ * escondida: ler a frota é liberado a toda a operação, e uma tela vazia faria
+ * a gestora concluir que a empresa não tem van.
+ */
+function Veiculos({
+  podeGerir,
+  podeRemover,
+}: {
+  podeGerir: boolean;
+  podeRemover: boolean;
+}) {
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Vehicle | null>(null);
@@ -120,9 +134,13 @@ function Veiculos() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <Button onClick={openCreate}>Cadastrar veículo</Button>
-      </div>
+      {podeGerir ? (
+        <div>
+          <Button onClick={openCreate}>Cadastrar veículo</Button>
+        </div>
+      ) : (
+        <PermissionNotice area="O cadastro de veículos" flag="canManageRoutes" />
+      )}
 
       {list.loading ? <SkeletonList rows={3} /> : null}
       {list.error ? <ErrorState message={list.error} onRetry={list.reload} /> : null}
@@ -132,7 +150,7 @@ function Veiculos() {
           icon={<Bus size={30} />}
           title="Nenhum veículo na frota"
           description="Sem veículo não há ponto, escala de fretamento nem rateio de despesa por van. Cadastre o primeiro."
-          action={<Button onClick={openCreate}>Cadastrar veículo</Button>}
+          action={podeGerir ? <Button onClick={openCreate}>Cadastrar veículo</Button> : undefined}
         />
       ) : null}
 
@@ -162,14 +180,18 @@ function Veiculos() {
                         setOdometro(v);
                       }}
                     >
-                      Odômetro
+                      Odômetro<span className="sr-only"> da van {v.plate}</span>
                     </Button>
-                    <Button variant="secondary" onClick={() => openEdit(v)}>
-                      Editar
-                    </Button>
-                    <Button variant="danger" onClick={() => setRemoving(v)}>
-                      Remover
-                    </Button>
+                    {podeGerir ? (
+                      <Button variant="secondary" onClick={() => openEdit(v)}>
+                        Editar<span className="sr-only"> a van {v.plate}</span>
+                      </Button>
+                    ) : null}
+                    {podeRemover ? (
+                      <Button variant="danger" onClick={() => setRemoving(v)}>
+                        Remover<span className="sr-only"> a van {v.plate}</span>
+                      </Button>
+                    ) : null}
                   </div>
                 </Card>
               </li>
@@ -296,7 +318,11 @@ function Veiculos() {
   );
 }
 
-function Motoristas() {
+/**
+ * Motoristas. Mesma regra: consultar é liberado à gestão, alterar exige a
+ * permissão de RH (`canManageHR`).
+ */
+function Motoristas({ podeGerir }: { podeGerir: boolean }) {
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Driver | null>(null);
@@ -363,7 +389,11 @@ function Motoristas() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <Button onClick={openCreate}>Cadastrar motorista</Button>
+        {podeGerir ? (
+          <Button onClick={openCreate}>Cadastrar motorista</Button>
+        ) : (
+          <PermissionNotice area="O cadastro de motoristas" flag="canManageHR" />
+        )}
       </div>
 
       {list.loading ? <SkeletonList rows={3} /> : null}
@@ -374,7 +404,7 @@ function Motoristas() {
           icon={<User size={30} />}
           title="Nenhum motorista cadastrado"
           description="O cadastro do motorista é a base da diária e do ponto. Ele nunca é apagado — no desligamento vira somente leitura."
-          action={<Button onClick={openCreate}>Cadastrar motorista</Button>}
+          action={podeGerir ? <Button onClick={openCreate}>Cadastrar motorista</Button> : undefined}
         />
       ) : null}
 
@@ -394,13 +424,17 @@ function Motoristas() {
                     <Badge tone={d.status === 'ACTIVE' ? 'good' : 'neutral'}>
                       {label.membershipStatus(d.status)}
                     </Badge>
-                    <Button variant="secondary" onClick={() => openEdit(d)}>
-                      Editar
-                    </Button>
-                    {d.status === 'ACTIVE' ? (
-                      <Button variant="danger" onClick={() => setArchiving(d)}>
-                        Arquivar
-                      </Button>
+                    {podeGerir ? (
+                      <>
+                        <Button variant="secondary" onClick={() => openEdit(d)}>
+                          Editar<span className="sr-only"> {d.name}</span>
+                        </Button>
+                        {d.status === 'ACTIVE' ? (
+                          <Button variant="danger" onClick={() => setArchiving(d)}>
+                            Arquivar<span className="sr-only"> {d.name}</span>
+                          </Button>
+                        ) : null}
+                      </>
                     ) : null}
                   </div>
                 </Card>
@@ -494,23 +528,24 @@ function Motoristas() {
 }
 
 export function Fleet() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, hasRole } = useAuth();
   const podeVeiculos = hasPermission('canManageRoutes');
   const podeMotoristas = hasPermission('canManageHR');
-  const [aba, setAba] = useState<'veiculos' | 'motoristas'>(podeVeiculos ? 'veiculos' : 'motoristas');
+  // Remover veículo é exclusivo do proprietário na API.
+  const ehDono = hasRole('OWNER');
+  const [aba, setAba] = useState<'veiculos' | 'motoristas'>('veiculos');
 
-  if (!podeVeiculos && !podeMotoristas) {
-    return (
-      <div>
-        <PageHeader title="Frota" />
-        <PermissionNotice area="Frota" />
-      </div>
-    );
-  }
+  /*
+    As duas abas aparecem sempre.
 
+    Consultar veículos e motoristas é liberado à gestão inteira pelo servidor;
+    o que as flags controlam é alterar. Esconder a aba faria a gestora sem a
+    permissão concluir que a frota não tem van nem motorista cadastrado — um
+    engano pior que ver a lista e não poder mexer nela.
+  */
   const abas = [
-    ...(podeVeiculos ? [{ id: 'veiculos' as const, texto: 'Veículos' }] : []),
-    ...(podeMotoristas ? [{ id: 'motoristas' as const, texto: 'Motoristas' }] : []),
+    { id: 'veiculos' as const, texto: 'Veículos' },
+    { id: 'motoristas' as const, texto: 'Motoristas' },
   ];
 
   return (
@@ -526,7 +561,7 @@ export function Fleet() {
             aria-selected={aba === item.id}
             onClick={() => setAba(item.id)}
             className={`min-h-[44px] rounded-lg px-4 text-sm ${
-              aba === item.id ? 'bg-brand-500 font-semibold text-ink-950' : 'bg-ink-800 text-ink-200'
+              aba === item.id ? 'bg-brand-500 font-semibold text-on-brand' : 'bg-ink-800 text-ink-200'
             }`}
           >
             {item.texto}
@@ -534,7 +569,11 @@ export function Fleet() {
         ))}
       </div>
 
-      {aba === 'veiculos' ? <Veiculos /> : <Motoristas />}
+      {aba === 'veiculos' ? (
+        <Veiculos podeGerir={podeVeiculos} podeRemover={ehDono} />
+      ) : (
+        <Motoristas podeGerir={podeMotoristas} />
+      )}
     </div>
   );
 }

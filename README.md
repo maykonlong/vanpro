@@ -15,36 +15,62 @@ crianças.
 
 ## Subir o projeto
 
-Pré-requisitos: **Docker**, **Node 20+**.
+Pré-requisitos: **Docker**, **Node 20+**, **OpenSSL** (vem no Git Bash).
+
+A stack local sobe em **modo de produção de verdade** — `APP_ENV=production`,
+front só em HTTPS, banco só em TLS verificado, papel de runtime sem DDL. Não há
+modo "quase produção": um ambiente que se afrouxa para caber não prova nada
+sobre o servidor.
 
 ```bash
 git clone <repo> && cd vanpro
-node infra/scripts/gen-secrets.mjs --write
-docker compose up -d postgres redis
-cd api && npm ci && npx prisma migrate deploy && npm run prisma:seed && npm run dev
+node infra/scripts/gen-secrets.mjs --write      # segredos e senhas do banco
+bash infra/scripts/gerar-certificados.sh        # CA local + certificados
+docker compose up -d --build
+cd api && npm ci && npm run prisma:seed         # dados no banco de verdade
 ```
 
-Em outro terminal:
+- Aplicação: **https://vanpro.localhost:8443** (a `8080` só redireciona)
+- API: `https://vanpro.localhost:8443/api/v1`
+- Documentação da API: só existe fora de produção — nesta stack, não
+
+O `gerar-certificados.sh` imprime como instalar a CA local no sistema. Sem esse
+passo o navegador mostra aviso de certificado (o certificado é válido; é a
+âncora que a máquina ainda não conhece) e o `verificar-deploy.sh` reporta a
+checagem de TLS como **NÃO VERIFICADO** — que é diferente de reprovar.
+
+### Rodar a API fora do contêiner (desenvolvimento)
 
 ```bash
+cd api && npm ci && npm run dev     # usa api/.env, com APP_ENV=local
 cd web && npm ci && npm run dev
 ```
 
-- Front: http://localhost:5173
-- API: http://localhost:3000/api/v1
-- Documentação da API: http://localhost:3000/api/v1/docs *(só fora de produção)*
+### Dados de demonstração
 
-Tudo em contêiner, do jeito que vai para produção:
+O seed grava dado **real** no PostgreSQL real, pelo mesmo cliente Prisma que a
+API usa — passando pelo mesmo tenant-guard e pela mesma criptografia de campo.
+Não há `if (mock)` em lugar nenhum.
 
-```bash
-docker compose up -d --build
-```
+| | |
+|---|---|
+| Empresas | 3 (duas ativas, uma em período de teste) |
+| Alunos | 40, com 6 meses de mensalidade e inadimplência desigual |
+| Veículos / motoristas | 8 / 9 cadastros (uma pessoa em duas frotas) |
+| Ponto | 5 dias úteis por motorista, com as 4 batidas |
+| Despesas | 6 meses × 5 categorias × 3 empresas |
+| Fretamentos | os 4 estados do fluxo, simultâneos |
 
-### Contas de demonstração
+**Três** empresas de propósito: com duas, um filtro trocado ("pega a outra
+empresa") ainda parece plausível; com três, fica obviamente errado. E 40 alunos
+em vez de 4 porque N+1, ordenação de nome com acento e filtro que esqueceu o
+`companyId` só aparecem com dezenas de linhas — e todos eles aparecem em
+produção, no primeiro cliente de verdade.
 
-Criadas pelo seed, senha **`VanPro@Demo2026`** para todas. São **duas empresas**
-de propósito — um sistema multi-tenant com um único inquilino no banco parece
-correto até o dia em que entra o segundo.
+O seed é **idempotente**: ids derivados de UUIDv5 sobre chave natural, então
+rodá-lo dez vezes deixa o banco igual a rodá-lo uma.
+
+Senha **`VanPro@Demo2026`** para todas as contas.
 
 | E-mail | Papel | Empresa |
 |---|---|---|
@@ -54,13 +80,16 @@ correto até o dia em que entra o segundo.
 | `carlos@transvan.com.br` | DRIVER | TransVan Escolar |
 | `monitora@transvan.com.br` | ASSISTANT | TransVan Escolar |
 | `maria@exemplo.com.br` | PARENT | TransVan Escolar |
-| `helena@rotasegura.com.br` | OWNER | Rota Segura |
-| `joana@freelancer.com.br` | DRIVER freelancer | **as duas empresas** |
-| `joao.pai@exemplo.com.br` | PARENT | Rota Segura |
+| `helena@rotasegura.com.br` | OWNER | Rota Segura Transportes |
+| `financeiro@rotasegura.com.br` | MANAGER (só financeiro) | Rota Segura Transportes |
+| `joana@freelancer.com.br` | DRIVER freelancer | **TransVan e Rota Segura** |
+| `joao.pai@exemplo.com.br` | PARENT | Rota Segura Transportes |
+| `sandra@caminhoseguro.com.br` | OWNER | Caminho Seguro *(em teste)* |
+| `denise@exemplo.com.br` | PARENT | Caminho Seguro |
 
 `joana@freelancer.com.br` existe para exercitar o caso que quebra
-multi-tenancy ingênua: a mesma pessoa com vínculo ativo em duas frotas, sem que
-uma enxergue os dados da outra.
+multi-tenancy ingênua: a mesma pessoa com vínculo ativo em duas frotas, com
+diária diferente em cada uma, sem que uma enxergue os dados da outra.
 
 ---
 
@@ -199,7 +228,13 @@ verdade.
 
 > `PRISMA_FIELD_ENCRYPTION_KEY` cifra nome, endereço e foto dos alunos em
 > repouso. **Perdê-la torna esses dados ilegíveis para sempre** — guarde em
-> cofre, não no repositório.
+> cofre, não no repositório. O que é cifrado, o que não é, e como rotacionar:
+> [`docs/CRIPTOGRAFIA.md`](docs/CRIPTOGRAFIA.md).
+
+O `.env` da raiz é outro arquivo, consumido pelo `docker compose` — veja
+[`.env.example`](.env.example). Ele guarda as **três** senhas do PostgreSQL:
+`postgres` (superusuário, só pelo socket interno), `vanpro_owner` (dono do
+schema, roda migrations) e `vanpro_app` (runtime, sem DDL).
 
 ---
 

@@ -70,6 +70,21 @@ const schema = z
         /^k1\.aesgcm256\.[A-Za-z0-9_-]{43}=?$/,
         'PRISMA_FIELD_ENCRYPTION_KEY inválida. Gere com: npx prisma-field-encryption generate-key',
       ),
+    /**
+     * Chaves ANTIGAS, aceitas apenas na LEITURA. Lista separada por virgula.
+     *
+     * Sem isto a rotacao de chave e impossivel na pratica: trocar a chave torna
+     * ilegivel, na hora, tudo o que ja estava cifrado — e o sistema nao reclama,
+     * ele so passa a mostrar `v1.aesgcm256.…` no lugar do nome de cada aluno. Com
+     * a lista, escreve-se com a nova e le-se com as duas ate o acervo ser
+     * reescrito; so entao a velha sai daqui. Procedimento em docs/CRIPTOGRAFIA.md.
+     */
+    PRISMA_FIELD_DECRYPTION_KEYS: opcional(
+      z.string().refine(
+        (v) => v.split(',').every((k) => /^k1\.aesgcm256\.[A-Za-z0-9_-]{43}=?$/.test(k.trim())),
+        'PRISMA_FIELD_DECRYPTION_KEYS: cada chave da lista precisa ter o formato k1.aesgcm256.<32 bytes base64url>',
+      ),
+    ),
 
     // --- Front / CORS ---
     FRONTEND_URL: z.string().url().default('http://localhost:5173'),
@@ -100,10 +115,6 @@ const schema = z
     WHATSAPP_TOKEN: opcional(z.string().min(10)),
     WHATSAPP_PHONE_ID: opcional(z.string().min(1)),
 
-    GOOGLE_MAPS_KEY: opcional(z.string().min(10)),
-
-    SENTRY_DSN: opcional(z.string().url()),
-
     // --- Uploads ---
     UPLOAD_DIR: z.string().default('./storage/uploads'),
     UPLOAD_MAX_BYTES: z.coerce.number().int().default(5 * 1024 * 1024),
@@ -128,11 +139,68 @@ const schema = z
         message: 'JWT_REFRESH_SECRET precisa ser diferente de JWT_ACCESS_SECRET',
       });
     }
-    if (!env.FRONTEND_URL.startsWith('https://') && !LOCAL_ORIGIN.test(env.FRONTEND_URL)) {
+    // Sem escape para localhost.
+    //
+    // A versao anterior abria excecao para `http://localhost:*` "porque e a
+    // maquina do desenvolvedor" — e era exatamente esse ramo que deixava a
+    // stack local rodar com APP_ENV=production e o cookie de sessao saindo sem
+    // `Secure`. Producao simulada que afrouxa a trava nao simula producao. Quem
+    // quer rodar em claro usa APP_ENV=local, que e o lugar onde isso e honesto.
+    if (!env.FRONTEND_URL.startsWith('https://')) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['FRONTEND_URL'],
-        message: 'Em produção FRONTEND_URL precisa ser https',
+        message:
+          'Em produção FRONTEND_URL precisa ser https — inclusive em máquina local (use o certificado de infra/scripts/gerar-certificados.sh)',
+      });
+    }
+    if (!env.WEBAUTHN_ORIGIN.startsWith('https://')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['WEBAUTHN_ORIGIN'],
+        message: 'Em produção WEBAUTHN_ORIGIN precisa ser https — passkey exige contexto seguro',
+      });
+    }
+
+    // ─── O banco nao fala em claro ───────────────────────────────────────
+    //
+    // Duas exigencias, e as duas importam por motivos diferentes:
+    //
+    //   sslmode=require  cifra o fio. Sem isto, senha e dado de crianca
+    //                    trafegam legiveis entre conteineres — o tipo de coisa
+    //                    que ninguem revisa e que um vizinho comprometido le.
+    //   sslaccept=strict autentica a outra ponta. Cifrado sem verificar
+    //                    certificado protege contra escuta passiva e contra
+    //                    mais nada: quem consegue se pôr no caminho apresenta o
+    //                    proprio certificado e a conexao segue "segura".
+    //
+    // O padrao do Prisma para `sslaccept` e `accept_invalid_certs`, ou seja: o
+    // silencio aqui vale pelo valor frouxo. Por isso a exigencia e explicita.
+    const dbTemTls = /[?&]sslmode=(require|verify-ca|verify-full)\b/.test(env.DATABASE_URL);
+    const dbVerifica =
+      /[?&]sslaccept=strict\b/.test(env.DATABASE_URL) ||
+      /[?&]sslmode=verify-full\b/.test(env.DATABASE_URL);
+    if (!dbTemTls) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DATABASE_URL'],
+        message: 'Em produção a DATABASE_URL precisa de sslmode=require (ou verify-full)',
+      });
+    }
+    if (!dbVerifica) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DATABASE_URL'],
+        message:
+          'Em produção a DATABASE_URL precisa de sslaccept=strict (ou sslmode=verify-full) e de sslcert apontando a CA — cifrar sem verificar o certificado não protege de quem está no caminho',
+      });
+    }
+    if (dbVerifica && !/[?&](sslcert|sslrootcert)=/.test(env.DATABASE_URL)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DATABASE_URL'],
+        message:
+          'sslaccept=strict sem sslcert: sem a âncora de confiança a verificação cai na loja de CAs do sistema, que não conhece a CA local',
       });
     }
     if (env.WEBAUTHN_RP_ID === 'localhost') {
@@ -173,8 +241,6 @@ export const env = load();
 export const features = {
   billing: Boolean(env.ASAAS_API_KEY),
   whatsapp: Boolean(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_ID),
-  maps: Boolean(env.GOOGLE_MAPS_KEY),
-  sentry: Boolean(env.SENTRY_DSN),
 } as const;
 
 export const isProduction = isProd;
@@ -187,6 +253,6 @@ export const isProduction = isProd;
 export function origemPermitida(origin: string): boolean {
   if (origin === env.FRONTEND_URL) return true;
   if (env.CORS_EXTRA_ORIGINS.includes(origin)) return true;
-  if (env.APP_ENV === 'local' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+  if (env.APP_ENV === 'local' && LOCAL_ORIGIN.test(origin)) return true;
   return false;
 }

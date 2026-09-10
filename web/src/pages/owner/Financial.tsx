@@ -6,6 +6,7 @@ import { api, ApiError } from '../../lib/api';
 import { firstDayOfMonth, formatDate, label, parseBrlToCents, today } from '../../lib/format';
 import { useAction, useResource } from '../../hooks/useResource';
 import { useAuth } from '../../context/AuthContext';
+import { useFeatures } from '../../context/FeaturesContext';
 import { FeatureDisabledNotice, PermissionNotice } from '../../components/PermissionNotice';
 import {
   Badge,
@@ -550,6 +551,11 @@ function Despesas({ from, to, onChanged }: { from: string; to: string; onChanged
 // ---------------------------------------------------------------------------
 
 function Faturas() {
+  const { enabled, loading: flagsCarregando } = useFeatures();
+  // Enquanto a sonda não responde, o botão fica indisponível: ausência de sinal
+  // não é aprovação. Prometer a emissão e falhar depois é pior que esperar.
+  const billingLigado = !flagsCarregando && enabled('billing');
+
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
   const [studentId, setStudentId] = useState('');
@@ -601,9 +607,22 @@ function Faturas() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <Button onClick={() => setCreating(true)}>Gerar cobrança Pix</Button>
-      </div>
+      {/*
+        A sonda `/health/features` diz se o gateway tem credencial NESTE
+        ambiente. Saber disso antes libera desabilitar o botão com a explicação
+        junto, em vez de deixar a pessoa preencher documento do pagador, valor e
+        vencimento para receber um 503 no fim.
+      */}
+      {billingLigado ? (
+        <div>
+          <Button onClick={() => setCreating(true)}>Gerar cobrança Pix</Button>
+        </div>
+      ) : (
+        <FeatureDisabledNotice
+          feature="Cobrança Pix"
+          detail="O gateway de pagamento não tem credencial neste ambiente, então nenhuma cobrança pode ser emitida agora. As faturas já registradas continuam listadas abaixo. Quem configura a integração é o administrador do ambiente."
+        />
+      )}
 
       <SuccessNote message={created} />
       {featureOff ? <FeatureDisabledNotice feature="Cobrança Pix" detail={featureOff} /> : null}
@@ -638,7 +657,7 @@ function Faturas() {
                         href={i.paymentUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-sm text-brand-400 underline"
+                        className="text-sm text-brand-600 underline"
                       >
                         Abrir cobrança
                       </a>
@@ -737,7 +756,7 @@ export function Financial() {
     return (
       <div>
         <PageHeader title="Financeiro" />
-        <PermissionNotice area="Financeiro" />
+        <PermissionNotice area="O financeiro" flag="canManageFinance" variante="oculta" />
       </div>
     );
   }
@@ -772,7 +791,7 @@ export function Financial() {
             aria-selected={aba === item.id}
             onClick={() => setAba(item.id)}
             className={`min-h-[44px] rounded-lg px-4 text-sm ${
-              aba === item.id ? 'bg-brand-500 font-semibold text-ink-950' : 'bg-ink-800 text-ink-200'
+              aba === item.id ? 'bg-brand-500 font-semibold text-on-brand' : 'bg-ink-800 text-ink-200'
             }`}
           >
             {item.texto}

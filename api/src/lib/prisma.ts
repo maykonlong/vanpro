@@ -212,7 +212,15 @@ function build() {
   });
 
   return base
-    .$extends(fieldEncryptionExtension({ encryptionKey: env.PRISMA_FIELD_ENCRYPTION_KEY }))
+    .$extends(
+      fieldEncryptionExtension({
+        encryptionKey: env.PRISMA_FIELD_ENCRYPTION_KEY,
+        // Chaves aposentadas continuam decifrando o que foi gravado com elas.
+        // O prefixo de cada valor no banco carrega a impressao digital da chave
+        // que o cifrou, entao a escolha e por registro — nao ha tentativa e erro.
+        decryptionKeys: env.PRISMA_FIELD_DECRYPTION_KEYS?.split(',').map((k) => k.trim()),
+      }),
+    )
     .$extends(softDelete)
     .$extends(tenantGuard);
 }

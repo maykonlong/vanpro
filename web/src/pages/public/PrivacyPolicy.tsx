@@ -100,7 +100,7 @@ export function PrivacyPolicy() {
       </a>
       <header className="border-b border-ink-800">
         <div className="mx-auto max-w-3xl px-4 py-4">
-          <Link to="/" className="inline-flex min-h-[44px] items-center text-lg font-semibold text-brand-400">
+          <Link to="/" className="inline-flex min-h-[44px] items-center text-lg font-semibold text-brand-600">
             VanPro
           </Link>
         </div>
@@ -255,7 +255,7 @@ export function PrivacyPolicy() {
           <p>
             Encarregado pelo tratamento de dados pessoais, conforme o Art. 41:
             <br />
-            <a className="text-brand-400 underline" href="mailto:privacidade@vanpro.com.br">
+            <a className="text-brand-600 underline" href="mailto:privacidade@vanpro.com.br">
               privacidade@vanpro.com.br
             </a>
           </p>
@@ -275,7 +275,7 @@ export function PrivacyPolicy() {
         </Section>
 
         <p className="mt-10 text-sm text-ink-400">
-          <Link to="/" className="inline-flex min-h-[44px] items-center text-brand-400 underline">
+          <Link to="/" className="inline-flex min-h-[44px] items-center text-brand-600 underline">
             Voltar para a página inicial
           </Link>
         </p>

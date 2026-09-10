@@ -23,6 +23,27 @@ Procedimento para subir uma versão nova em produção.
 Deploy durante a rota é deploy no pior momento: é exatamente quando o motorista
 faz check-in de criança pelo celular e o responsável acompanha.
 
+### Se for a PRIMEIRA subida deste host
+
+Três coisas precisam existir antes do `up`, e nenhuma delas é criada sozinha:
+
+```bash
+node infra/scripts/gen-secrets.mjs --write     # segredos + as 3 senhas do banco
+bash infra/scripts/gerar-certificados.sh       # CA local + certificado do web e do banco
+docker compose up -d --build
+cd api && npm run prisma:seed                  # só em ambiente de demonstração
+```
+
+Os papéis `vanpro_owner` e `vanpro_app` nascem em
+`infra/postgres/init/00-papeis.sh`, e o entrypoint do PostgreSQL **só executa os
+scripts de init com o diretório de dados vazio**. Num volume que já existe eles
+não aparecem, e o sintoma é uma API que não conecta com mensagem de senha — que
+aponta para o lugar errado. Volume novo, ou os papéis criados à mão.
+
+Num servidor com certificado público (Let's Encrypt), o `gerar-certificados.sh`
+continua sendo necessário **para o banco**: o cliente do PostgreSQL não consulta
+a loja de CAs do sistema, ele quer o arquivo apontado por `sslcert`.
+
 ---
 
 ## 1. Backup verificado — ANTES de subir, não depois
@@ -154,6 +175,20 @@ Subir não é estar certo:
 bash infra/scripts/verificar-deploy.sh https://<host>
 ```
 
+Três variáveis mudam o que dá para medir:
+
+| Variável | Para quê |
+|---|---|
+| `VANPRO_CA` | arquivo da CA local. Se o certificado for recusado pela loja do sistema **mas** aceito por essa âncora, o resultado é **NV** e não FALHA — "certificado inválido" e "esta máquina ainda não instalou a CA" são coisas diferentes, e reprovar as duas igual é o que ensina uma equipe a rodar tudo com `-k`. Padrão: `infra/certs/ca.crt`, se existir |
+| `VANPRO_URL_HTTP` | a URL em texto claro a testar. Necessária quando o HTTPS não está na 443: `http://host:8443` bate na porta TLS e o nginx responde 400, que seria contado como falha sem ter nada a ver com servir em claro |
+| `VANPRO_LOGIN` / `VANPRO_SENHA` | credencial **válida**. Com elas, as flags do cookie de sessão saem de NV para medição de verdade — o cookie não existe numa resposta de credencial inválida |
+
+Na stack local de produção simulada:
+
+```bash
+VANPRO_URL_HTTP=http://vanpro.localhost:8080 VANPRO_LOGIN=roberto@transvan.com.br VANPRO_SENHA='VanPro@Demo2026'   bash infra/scripts/verificar-deploy.sh https://vanpro.localhost:8443
+```
+
 | Exit | Significado | O que fazer |
 |---|---|---|
 | `0` | APROVADO — tudo medido e passou | seguir |
@@ -219,6 +254,7 @@ Escrito para ser honesto sobre o próprio estado:
 
 | Item | Situação |
 |---|---|
-| Este procedimento de ponta a ponta | **nunca executado** contra um host real. Foi escrito a partir do compose e do código, com o Docker parado. |
-| Restauração completa (passo 6) | os comandos não foram rodados. `infra/scripts/backup.sh --verificar` implementa a prova de restauração, mas também não foi executado. |
+| Este procedimento de ponta a ponta | **nunca executado** contra um host real. Foi escrito a partir do compose e do código. Os passos 1, 3 e 5 já foram exercitados contra a stack local em modo de produção. |
+| Restauração completa (passo 6) | os comandos de restauração **sobre produção** não foram rodados. `infra/scripts/backup.sh --verificar` **foi** executado e passou: 25 tabelas restauradas num banco descartável, com `Company: 3`, `Student: 40`, `Invoice: 2`. |
+| Confiança no certificado pela loja do sistema | **NÃO VERIFICADO** na máquina de desenvolvimento: a CA local não está instalada, e o curl do Windows usa Schannel, que trata "revogação desconhecida" como falha mesmo com a CA instalada. O certificado é válido sob a âncora local — o que não dá para afirmar é o que o navegador de um terceiro faz. |
 | Consultas de contagem (passos 2 e 4) | os nomes de tabela e coluna foram conferidos **lendo** `api/prisma/schema.prisma`; as consultas **não** foram executadas contra um banco. `Timecard` e `Punch` não entram na contagem — se passarem a importar, acrescente-os. |

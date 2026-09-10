@@ -27,7 +27,7 @@ export function ResetPassword() {
         title="Link inválido"
         subtitle="Este endereço não traz um token de redefinição. Peça um novo link na tela de recuperação."
         footer={
-          <Link to="/esqueci-a-senha" className="inline-flex min-h-[44px] items-center text-brand-400 underline">
+          <Link to="/esqueci-a-senha" className="inline-flex min-h-[44px] items-center text-brand-600 underline">
             Pedir novo link
           </Link>
         }

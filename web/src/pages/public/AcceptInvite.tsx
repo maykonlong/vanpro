@@ -29,7 +29,7 @@ export function AcceptInvite() {
         title="Convite inválido"
         subtitle="Este endereço não traz um token de convite. Peça a empresa que reenvie o link."
         footer={
-          <Link to="/entrar" className="inline-flex min-h-[44px] items-center text-brand-400 underline">
+          <Link to="/entrar" className="inline-flex min-h-[44px] items-center text-brand-600 underline">
             Ir para o login
           </Link>
         }

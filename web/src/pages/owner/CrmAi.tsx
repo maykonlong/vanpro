@@ -5,6 +5,7 @@ import { Cake, MessageSquare, Megaphone } from 'lucide-react';
 import { api, ApiError } from '../../lib/api';
 import { formatDate, formatDateTime, label } from '../../lib/format';
 import { useAction, useResource } from '../../hooks/useResource';
+import { useFeatures } from '../../context/FeaturesContext';
 import { useRealtime } from '../../hooks/useRealtime';
 import { FeatureDisabledNotice } from '../../components/PermissionNotice';
 import {
@@ -191,7 +192,7 @@ function Incidentes() {
 
       {novos.length > 0 ? (
         <Card>
-          <h2 className="mb-2 text-sm font-semibold text-brand-400">Chegou agora</h2>
+          <h2 className="mb-2 text-sm font-semibold text-brand-600">Chegou agora</h2>
           <ul className="flex flex-col gap-2">
             {novos.map((i) => (
               <li key={i.id} className="rounded-lg bg-ink-800 px-3 py-2 text-sm text-ink-50">
@@ -265,6 +266,29 @@ function Campanhas() {
   const create = useAction();
   const toggle = useAction();
   const gerar = useAction();
+  // Aprovar, recusar e publicar são rotas que já existiam na API e não tinham
+  // botão nenhum na tela: o rascunho ficava listado sem que ninguém pudesse
+  // fazer nada com ele. Uma tela que só renderiza não é uma tela.
+  const moderar = useAction();
+  const { enabled, loading: flagsCarregando } = useFeatures();
+
+  const onModerar = async (post: AiPost, acao: 'approve' | 'reject' | 'publish') => {
+    const done = await moderar.run(async () => {
+      await api.post(`/ai/posts/${post.id}/${acao}`, acao === 'reject' ? { reason: '' } : undefined);
+      return true;
+    });
+    if (done) posts.reload();
+  };
+
+  /**
+   * O canal precisa de credencial para a publicação SAIR de fato.
+   *
+   * WhatsApp é o único canal cuja configuração a sonda `/health/features`
+   * expõe. Nos demais o botão continua disponível e a API decide — o que não
+   * pode acontecer é marcar como publicado algo que nunca foi enviado.
+   */
+  const canalPronto = (canal: AiPost['channel']) =>
+    canal === 'WHATSAPP' ? !flagsCarregando && enabled('whatsapp') : true;
 
   const onCreate = async (event: FormEvent) => {
     event.preventDefault();
@@ -425,14 +449,65 @@ function Campanhas() {
             rota responde 503 em vez de inventar um texto e chamar de gerado.
           </p>
         ) : null}
+        <InlineError message={moderar.error} />
+
         {posts.data && posts.data.items.length > 0 ? (
           <ul className="flex flex-col gap-2">
             {posts.data.items.map((p) => (
-              <li key={p.id} className="rounded-lg bg-ink-800 px-3 py-2">
+              <li key={p.id} className="rounded-xl bg-ink-800 px-3 py-3">
                 <p className="text-sm text-ink-50">{p.content}</p>
-                <p className="mt-1 text-xs text-ink-400">
-                  {label.channel(p.channel)} · {label.aiPostStatus(p.status)}
-                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Badge
+                    tone={
+                      p.status === 'PUBLISHED'
+                        ? 'good'
+                        : p.status === 'REJECTED'
+                          ? 'bad'
+                          : p.status === 'APPROVED'
+                            ? 'brand'
+                            : 'neutral'
+                    }
+                  >
+                    {label.aiPostStatus(p.status)}
+                  </Badge>
+                  <span className="text-xs text-ink-400">{label.channel(p.channel)}</span>
+
+                  {p.status === 'DRAFT' ? (
+                    <>
+                      <Button
+                        variant="primary"
+                        loading={moderar.pending}
+                        onClick={() => void onModerar(p, 'approve')}
+                      >
+                        Aprovar
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        loading={moderar.pending}
+                        onClick={() => void onModerar(p, 'reject')}
+                      >
+                        Recusar
+                      </Button>
+                    </>
+                  ) : null}
+
+                  {p.status === 'APPROVED' ? (
+                    canalPronto(p.channel) ? (
+                      <Button
+                        variant="primary"
+                        loading={moderar.pending}
+                        onClick={() => void onModerar(p, 'publish')}
+                      >
+                        Publicar agora
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-warn-400">
+                        {label.channel(p.channel)} sem credencial neste ambiente — a publicação seria
+                        recusada, então o botão não é oferecido.
+                      </span>
+                    )
+                  ) : null}
+                </div>
               </li>
             ))}
           </ul>
@@ -520,7 +595,7 @@ export function CrmAi() {
             aria-selected={aba === item.id}
             onClick={() => setAba(item.id)}
             className={`min-h-[44px] rounded-lg px-4 text-sm ${
-              aba === item.id ? 'bg-brand-500 font-semibold text-ink-950' : 'bg-ink-800 text-ink-200'
+              aba === item.id ? 'bg-brand-500 font-semibold text-on-brand' : 'bg-ink-800 text-ink-200'
             }`}
           >
             {item.texto}

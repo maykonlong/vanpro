@@ -1,5 +1,13 @@
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Bus, TrendingDown, TrendingUp } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Bus,
+  CalendarClock,
+  Rocket,
+  Users,
+  Wrench,
+} from 'lucide-react';
 
 import { api } from '../../lib/api';
 import { firstDayOfMonth, formatCents, formatDate, label, today } from '../../lib/format';
@@ -7,124 +15,344 @@ import { useResource } from '../../hooks/useResource';
 import { useAuth } from '../../context/AuthContext';
 import { PermissionNotice } from '../../components/PermissionNotice';
 import {
+  Answer,
   Badge,
+  Button,
   Card,
   EmptyState,
   ErrorState,
   PageHeader,
+  SectionTitle,
   Skeleton,
+  SkeletonAnswer,
   SkeletonList,
+  Stat,
 } from '../../components/ui';
-import type { Dre, Incident, Paginated, Transaction, Vehicle } from '../../lib/types';
+import type { Dre, Incident, Paginated, Student, Transaction, Vehicle } from '../../lib/types';
 
-function Stat({
-  title,
-  value,
-  hint,
-  tone = 'neutral',
-}: {
-  title: string;
-  value: string;
-  hint?: string;
-  tone?: 'neutral' | 'good' | 'bad';
-}) {
-  const color = tone === 'good' ? 'text-good-400' : tone === 'bad' ? 'text-bad-400' : 'text-ink-50';
+/**
+ * Painel do dono da frota.
+ *
+ * A pergunta dele não é "quantos registros eu tenho": é "estou ganhando ou
+ * perdendo?" e, no meio do mês, "quem não me pagou?". Por isso a tela abre com
+ * DUAS respostas em corpo grande — o resultado do mês e o valor atrasado — e só
+ * depois oferece os números de apoio. Seis cartões iguais no topo obrigariam
+ * ele a fazer a conta de cabeça para descobrir o que a tela já sabe.
+ */
+
+const MESES = [
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
+];
+
+/** Link de navegação com alvo de toque cheio, e não texto sublinhado solto. */
+function LinkAcao({ to, children }: { to: string; children: React.ReactNode }) {
   return (
-    <Card>
-      <p className="text-xs uppercase tracking-wide text-ink-400">{title}</p>
-      <p className={`mt-2 text-2xl font-semibold ${color}`}>{value}</p>
-      {hint ? <p className="mt-1 text-xs text-ink-400">{hint}</p> : null}
-    </Card>
+    <Link
+      to={to}
+      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-3 text-sm font-medium text-brand-600 transition-colors hover:bg-brand-soft"
+    >
+      {children}
+      <ArrowRight aria-hidden="true" size={16} />
+    </Link>
   );
 }
 
-function DreBlock() {
+// ---------------------------------------------------------------------------
+// Resposta 1 — o resultado do mês
+// ---------------------------------------------------------------------------
+
+function ResultadoDoMes() {
   const from = firstDayOfMonth();
   const to = today();
-  const dre = useResource<Dre>((signal) => api.get('/financial/dre', { from, to }, signal), [from, to]);
+  const dre = useResource<Dre>(
+    (signal) => api.get('/financial/dre', { from, to }, signal),
+    [from, to],
+  );
+
+  const mes = MESES[new Date().getMonth()];
 
   if (dre.loading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-28 w-full" />
-        ))}
+      <div className="flex flex-col gap-4">
+        <SkeletonAnswer />
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Skeleton className="h-[86px]" />
+          <Skeleton className="h-[86px]" />
+          <Skeleton className="h-[86px]" />
+        </div>
       </div>
     );
   }
   if (dre.error) return <ErrorState message={dre.error} onRetry={dre.reload} />;
   if (!dre.data) return null;
 
-  const lucro = dre.data.lucroLiquido.cents;
+  const { receitas, despesaTotal, lucroLiquido, despesasPorCategoria, margemPercentual } = dre.data;
+  const lucro = lucroLiquido.cents;
+  const positivo = lucro >= 0;
+  const semMovimento = receitas.total.cents === 0 && despesaTotal.cents === 0;
+
+  // A maior despesa é o que o dono consegue de fato atacar; a lista inteira
+  // vira ruído no topo da tela.
+  const maiorDespesa = [...despesasPorCategoria].sort((a, b) => b.valor.cents - a.valor.cents)[0];
+  const maiorFatia =
+    despesaTotal.cents > 0 && maiorDespesa
+      ? Math.round((maiorDespesa.valor.cents / despesaTotal.cents) * 100)
+      : 0;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <Stat
-        title="Receita do mês"
-        value={dre.data.receitas.total.formatted}
-        hint={`Mensalidades ${dre.data.receitas.mensalidades.formatted} · Fretamentos ${dre.data.receitas.fretamentos.formatted}`}
-        tone="good"
+    <div className="flex flex-col gap-4">
+      <Answer
+        question={`Como está ${mes}, do dia 1º até hoje`}
+        tone={semMovimento ? 'neutral' : positivo ? 'gain' : 'loss'}
+        value={
+          semMovimento
+            ? 'Sem movimento ainda'
+            : `${positivo ? 'Sobrou' : 'Faltou'} ${formatCents(Math.abs(lucro))}`
+        }
+        detail={
+          semMovimento
+            ? 'Nenhuma mensalidade recebida e nenhuma despesa lançada neste mês. Assim que houver baixa de pagamento ou lançamento de custo, o resultado aparece aqui.'
+            : `Entrou ${receitas.total.formatted} e saiu ${despesaTotal.formatted}. ${
+                positivo
+                  ? `Isso é uma margem de ${margemPercentual}% sobre o que entrou.`
+                  : 'As despesas do período passaram o que foi recebido.'
+              }`
+        }
+        footer={<LinkAcao to="/app/financeiro">Abrir o financeiro</LinkAcao>}
       />
-      <Stat title="Despesas do mês" value={dre.data.despesaTotal.formatted} tone="bad" />
-      <Stat
-        title="Lucro líquido"
-        value={dre.data.lucroLiquido.formatted}
-        hint={`Margem de ${dre.data.margemPercentual}%`}
-        tone={lucro >= 0 ? 'good' : 'bad'}
-      />
-      <Card>
-        <p className="text-xs uppercase tracking-wide text-ink-400">Despesas por categoria</p>
-        <ul className="mt-2 flex flex-col gap-1 text-sm">
-          {dre.data.despesasPorCategoria.map((linha) => (
-            <li key={linha.categoria} className="flex justify-between gap-2">
-              <span className="text-ink-400">{label.expenseCategory(linha.categoria)}</span>
-              <span className="text-ink-50">{linha.valor.formatted}</span>
-            </li>
-          ))}
-        </ul>
-      </Card>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Stat
+          label="Mensalidades recebidas"
+          value={receitas.mensalidades.formatted}
+          tone={receitas.mensalidades.cents > 0 ? 'gain' : 'neutral'}
+          hint="Somente as com baixa confirmada."
+        />
+        <Stat
+          label="Fretamentos concluídos"
+          value={receitas.fretamentos.formatted}
+          tone={receitas.fretamentos.cents > 0 ? 'gain' : 'neutral'}
+          hint="Contratos encerrados no período."
+        />
+        <Stat
+          label="Maior despesa"
+          value={maiorDespesa ? maiorDespesa.valor.formatted : formatCents(0)}
+          tone={despesaTotal.cents > 0 ? 'loss' : 'neutral'}
+          hint={
+            maiorDespesa && despesaTotal.cents > 0
+              ? `${label.expenseCategory(maiorDespesa.categoria)} — ${maiorFatia}% do total gasto.`
+              : 'Nenhuma despesa lançada no período.'
+          }
+        />
+      </div>
+
+      {despesaTotal.cents > 0 ? (
+        <Card>
+          <SectionTitle hint="Para onde foi o dinheiro que saiu neste mês.">
+            Composição das despesas
+          </SectionTitle>
+          <ul className="flex flex-col gap-2.5">
+            {despesasPorCategoria
+              .filter((linha) => linha.valor.cents > 0)
+              .sort((a, b) => b.valor.cents - a.valor.cents)
+              .map((linha) => {
+                const fatia = Math.round((linha.valor.cents / despesaTotal.cents) * 100);
+                return (
+                  <li key={linha.categoria}>
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                      <span className="text-ink-200">{label.expenseCategory(linha.categoria)}</span>
+                      <span className="tnum shrink-0 font-medium text-ink-50">
+                        {linha.valor.formatted}
+                        <span className="ml-2 text-xs font-normal text-ink-400">{fatia}%</span>
+                      </span>
+                    </div>
+                    {/* A barra é decorativa: o número ao lado já diz tudo para
+                        quem usa leitor de tela. */}
+                    <div aria-hidden="true" className="mt-1.5 h-1.5 rounded-full bg-ink-800">
+                      <div
+                        className="h-1.5 rounded-full bg-loss"
+                        style={{ width: `${Math.max(fatia, 2)}%` }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+          </ul>
+        </Card>
+      ) : null}
     </div>
   );
 }
 
-function InadimplenciaBlock() {
+// ---------------------------------------------------------------------------
+// Resposta 2 — quem não pagou
+// ---------------------------------------------------------------------------
+
+const LIMITE_ATRASO = 100;
+
+function QuemNaoPagou() {
   const hoje = today();
-  const pendentes = useResource<Paginated<Transaction>>(
+
+  const atrasadas = useResource<Paginated<Transaction>>(
     (signal) =>
-      api.get('/financial/transactions', { paid: 'false', dueTo: hoje, perPage: 5 }, signal),
+      api.get(
+        '/financial/transactions',
+        { paid: 'false', dueTo: hoje, perPage: LIMITE_ATRASO },
+        signal,
+      ),
     [hoje],
+  );
+  // A mensalidade guarda o `studentId`, não o nome. Sem este cruzamento a tela
+  // mostraria um UUID — e "quem não pagou" viraria "qual identificador não pagou".
+  const alunos = useResource<Paginated<Student>>(
+    (signal) => api.get('/students', { perPage: 100 }, signal),
+    [],
+  );
+
+  if (atrasadas.loading) return <SkeletonAnswer />;
+  if (atrasadas.error) return <ErrorState message={atrasadas.error} onRetry={atrasadas.reload} />;
+  if (!atrasadas.data) return null;
+
+  const { items, meta } = atrasadas.data;
+  const totalCents = items.reduce((acc, t) => acc + t.amount.cents, 0);
+  const parcial = meta.total > items.length;
+  const nomes = new Map((alunos.data?.items ?? []).map((s) => [s.id, s.name]));
+
+  if (meta.total === 0) {
+    return (
+      <Answer
+        question="Quanto está atrasado"
+        tone="good"
+        value="Ninguém em atraso"
+        detail="Todas as mensalidades com vencimento até hoje estão quitadas. Quando alguma vencer sem baixa, ela aparece aqui com nome e valor."
+      />
+    );
+  }
+
+  return (
+    <Answer
+      question="Quanto está atrasado"
+      tone="loss"
+      value={formatCents(totalCents)}
+      detail={
+        parcial
+          ? `${meta.total} mensalidades venceram sem pagamento. O valor acima soma as ${items.length} primeiras — abra o financeiro para o total completo.`
+          : `${meta.total} ${meta.total === 1 ? 'mensalidade venceu' : 'mensalidades venceram'} sem pagamento.`
+      }
+      footer={
+        <div className="flex flex-col gap-3">
+          <ul className="flex flex-col gap-2">
+            {items.slice(0, 5).map((t) => (
+              <li
+                key={t.id}
+                className="flex items-center justify-between gap-3 rounded-xl bg-ink-800 px-3 py-2.5"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-ink-50">
+                    {nomes.get(t.studentId) ?? 'Aluno não identificado'}
+                  </span>
+                  <span className="block text-xs text-ink-400">
+                    Venceu em {formatDate(t.dueDate)}
+                  </span>
+                </span>
+                <span className="tnum shrink-0 text-sm font-semibold text-loss">
+                  {t.amount.formatted}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <LinkAcao to="/app/financeiro">Ver todas e dar baixa</LinkAcao>
+        </div>
+      }
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Blocos de apoio
+// ---------------------------------------------------------------------------
+
+function Frota() {
+  const frota = useResource<Paginated<Vehicle>>(
+    (signal) => api.get('/vehicles', { perPage: 100 }, signal),
+    [],
   );
 
   return (
     <Card>
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-ink-50">Mensalidades vencidas</h2>
-        <Link to="/app/financeiro" className="inline-flex min-h-[44px] items-center px-2 text-sm text-brand-400 underline">
-          Ver financeiro
-        </Link>
-      </div>
+      <SectionTitle icon={<Bus size={18} />} action={<LinkAcao to="/app/frota">Gerenciar</LinkAcao>}>
+        Frota
+      </SectionTitle>
 
-      {pendentes.loading ? <SkeletonList rows={3} /> : null}
-      {pendentes.error ? <ErrorState message={pendentes.error} onRetry={pendentes.reload} /> : null}
+      {frota.loading ? <SkeletonList rows={2} /> : null}
+      {frota.error ? <ErrorState message={frota.error} onRetry={frota.reload} /> : null}
 
-      {pendentes.data && pendentes.data.items.length === 0 ? (
-        <p className="text-sm text-ink-400">
-          Nenhuma mensalidade vencida em aberto. Quando houver, ela aparece aqui com o vencimento.
-        </p>
+      {frota.data && frota.data.items.length === 0 ? (
+        <EmptyState
+          icon={<Bus size={26} />}
+          title="Nenhum veículo cadastrado"
+          description="Cadastre a primeira van para poder escalar motoristas, bater ponto e lançar despesas por veículo."
+          action={
+            <Link to="/app/frota">
+              <Button>Cadastrar veículo</Button>
+            </Link>
+          }
+        />
       ) : null}
 
-      {pendentes.data && pendentes.data.items.length > 0 ? (
+      {frota.data && frota.data.items.length > 0 ? (
         <>
-          <p className="mb-3 text-sm text-bad-400">
-            {pendentes.data.meta.total} em aberto ·{' '}
-            {formatCents(pendentes.data.items.reduce((acc, t) => acc + t.amount.cents, 0))} nas
-            primeiras {pendentes.data.items.length}
-          </p>
+          {(() => {
+            const emRota = frota.data.items.filter((v) => v.status === 'ON_ROUTE').length;
+            const manutencao = frota.data.items.filter((v) => v.status === 'MAINTENANCE').length;
+            return (
+              <p className="mb-3 text-sm text-ink-400">
+                <strong className="tnum text-ink-50">{frota.data.meta.total}</strong>{' '}
+                {frota.data.meta.total === 1 ? 'veículo' : 'veículos'} · {emRota} em rota agora
+                {manutencao > 0 ? (
+                  <>
+                    {' '}
+                    ·{' '}
+                    <span className="font-medium text-warn-400">
+                      {manutencao} parado{manutencao > 1 ? 's' : ''} em manutenção
+                    </span>
+                  </>
+                ) : null}
+              </p>
+            );
+          })()}
           <ul className="flex flex-col gap-2">
-            {pendentes.data.items.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-3 rounded-lg bg-ink-800 px-3 py-2">
-                <span className="text-sm text-ink-200">Venceu em {formatDate(t.dueDate)}</span>
-                <span className="text-sm font-medium text-ink-50">{t.amount.formatted}</span>
+            {frota.data.items.slice(0, 5).map((v) => (
+              <li
+                key={v.id}
+                className="flex items-center justify-between gap-3 rounded-xl bg-ink-800 px-3 py-2.5"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold text-ink-50">{v.plate}</span>
+                  <span className="tnum block text-xs text-ink-400">
+                    {v.km.toLocaleString('pt-BR')} km
+                    {v.model ? ` · ${v.model}` : ''}
+                  </span>
+                </span>
+                <Badge
+                  tone={
+                    v.status === 'MAINTENANCE' ? 'warn' : v.status === 'ON_ROUTE' ? 'good' : 'neutral'
+                  }
+                >
+                  {v.status === 'MAINTENANCE' ? <Wrench aria-hidden="true" size={12} /> : null}
+                  {label.vehicleStatus(v.status)}
+                </Badge>
               </li>
             ))}
           </ul>
@@ -134,55 +362,7 @@ function InadimplenciaBlock() {
   );
 }
 
-function FrotaBlock() {
-  const frota = useResource<Paginated<Vehicle>>(
-    (signal) => api.get('/vehicles', { perPage: 100 }, signal),
-    [],
-  );
-
-  return (
-    <Card>
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-ink-50">Frota</h2>
-        <Link to="/app/frota" className="inline-flex min-h-[44px] items-center px-2 text-sm text-brand-400 underline">
-          Gerenciar
-        </Link>
-      </div>
-
-      {frota.loading ? <SkeletonList rows={2} /> : null}
-      {frota.error ? <ErrorState message={frota.error} onRetry={frota.reload} /> : null}
-
-      {frota.data && frota.data.items.length === 0 ? (
-        <EmptyState
-          icon={<Bus size={28} />}
-          title="Nenhum veículo cadastrado"
-          description="Cadastre a primeira van para poder escalar motoristas, bater ponto e lançar despesas por veículo."
-          action={
-            <Link to="/app/frota" className="inline-flex min-h-[44px] items-center px-2 text-sm text-brand-400 underline">
-              Cadastrar veículo
-            </Link>
-          }
-        />
-      ) : null}
-
-      {frota.data && frota.data.items.length > 0 ? (
-        <ul className="flex flex-col gap-2">
-          {frota.data.items.slice(0, 6).map((v) => (
-            <li key={v.id} className="flex items-center justify-between gap-3 rounded-lg bg-ink-800 px-3 py-2">
-              <span className="text-sm font-medium text-ink-50">{v.plate}</span>
-              <span className="text-xs text-ink-400">{v.km.toLocaleString('pt-BR')} km</span>
-              <Badge tone={v.status === 'MAINTENANCE' ? 'warn' : v.status === 'ON_ROUTE' ? 'good' : 'neutral'}>
-                {label.vehicleStatus(v.status)}
-              </Badge>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </Card>
-  );
-}
-
-function AlertasBlock() {
+function Alertas() {
   const alertas = useResource<Paginated<Incident>>(
     (signal) => api.get('/crm/incidents', { perPage: 5 }, signal),
     [],
@@ -190,34 +370,34 @@ function AlertasBlock() {
 
   return (
     <Card>
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-ink-50">Alertas recentes</h2>
-        <Link to="/app/crm" className="inline-flex min-h-[44px] items-center px-2 text-sm text-brand-400 underline">
-          Ver CRM
-        </Link>
-      </div>
+      <SectionTitle
+        icon={<AlertTriangle size={18} />}
+        action={<LinkAcao to="/app/crm">Ver tudo</LinkAcao>}
+      >
+        Alertas da equipe
+      </SectionTitle>
 
       {alertas.loading ? <SkeletonList rows={2} /> : null}
       {alertas.error ? <ErrorState message={alertas.error} onRetry={alertas.reload} /> : null}
 
       {alertas.data && alertas.data.items.length === 0 ? (
-        <EmptyState
-          icon={<AlertTriangle size={28} />}
-          title="Nenhum incidente registrado"
-          description="Quando alguém disparar um alerta para a equipe, ele aparece aqui e chega em tempo real para quem estiver com o painel aberto."
-        />
+        <p className="rounded-xl border border-dashed border-ink-700 px-4 py-6 text-center text-sm text-ink-400">
+          Nenhum incidente registrado. Quando alguém disparar um alerta, ele aparece aqui e chega em
+          tempo real para quem estiver com o painel aberto.
+        </p>
       ) : null}
 
       {alertas.data && alertas.data.items.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {alertas.data.items.map((i) => (
-            <li key={i.id} className="rounded-lg bg-ink-800 px-3 py-2">
-              <div className="flex items-center justify-between gap-2">
+            <li key={i.id} className="rounded-xl bg-ink-800 px-3 py-2.5">
+              <div className="flex items-start justify-between gap-2">
                 <span className="text-sm font-medium text-ink-50">{i.title}</span>
                 <Badge tone={i.severity === 'CRITICAL' || i.severity === 'HIGH' ? 'bad' : 'warn'}>
                   {label.severity(i.severity)}
                 </Badge>
               </div>
+              <p className="mt-1 line-clamp-2 text-xs text-ink-400">{i.description}</p>
               <p className="mt-1 text-xs text-ink-400">{formatDate(i.createdAt)}</p>
             </li>
           ))}
@@ -227,64 +407,101 @@ function AlertasBlock() {
   );
 }
 
+/**
+ * Primeiros passos.
+ *
+ * Só aparece enquanto a frota está de fato vazia. Um checklist eterno no painel
+ * de quem já opera há dois anos é ruído; aqui ele se aposenta sozinho.
+ */
+function PrimeirosPassos() {
+  const alunos = useResource<Paginated<Student>>(
+    (signal) => api.get('/students', { perPage: 1 }, signal),
+    [],
+  );
+  const veiculos = useResource<Paginated<Vehicle>>(
+    (signal) => api.get('/vehicles', { perPage: 1 }, signal),
+    [],
+  );
+
+  if (alunos.loading || veiculos.loading) return null;
+  const semAlunos = alunos.data?.meta.total === 0;
+  const semVeiculos = veiculos.data?.meta.total === 0;
+  if (!semAlunos && !semVeiculos) return null;
+
+  return (
+    <Card className="border-brand-500/40 bg-brand-soft">
+      <SectionTitle
+        icon={<Rocket size={18} />}
+        hint="Três cadastros e o VanPro começa a responder as suas perguntas com dado real."
+      >
+        Comece por aqui
+      </SectionTitle>
+      <ul className="flex flex-col gap-2">
+        {semVeiculos ? (
+          <li className="flex items-center justify-between gap-3 rounded-xl bg-ink-900 px-3 py-2.5">
+            <span className="flex items-center gap-2.5 text-sm text-ink-200">
+              <Bus aria-hidden="true" size={18} className="shrink-0 text-brand-600" />
+              Cadastre a primeira van
+            </span>
+            <LinkAcao to="/app/frota">Frota</LinkAcao>
+          </li>
+        ) : null}
+        {semAlunos ? (
+          <li className="flex items-center justify-between gap-3 rounded-xl bg-ink-900 px-3 py-2.5">
+            <span className="flex items-center gap-2.5 text-sm text-ink-200">
+              <Users aria-hidden="true" size={18} className="shrink-0 text-brand-600" />
+              Cadastre os alunos e a mensalidade de cada um
+            </span>
+            <LinkAcao to="/app/alunos">Alunos</LinkAcao>
+          </li>
+        ) : null}
+        <li className="flex items-center justify-between gap-3 rounded-xl bg-ink-900 px-3 py-2.5">
+          <span className="flex items-center gap-2.5 text-sm text-ink-200">
+            <CalendarClock aria-hidden="true" size={18} className="shrink-0 text-brand-600" />
+            Convide motorista e monitor com o acesso de cada um
+          </span>
+          <LinkAcao to="/app/equipe">Equipe</LinkAcao>
+        </li>
+      </ul>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
 export function Dashboard() {
   const { user, hasPermission } = useAuth();
   const podeFinanceiro = hasPermission('canManageFinance');
+  const primeiroNome = user?.name?.split(' ')[0] ?? '';
 
   return (
     <div>
       <PageHeader
-        title={`Painel${user?.company ? ` — ${user.company.name}` : ''}`}
-        description="Resultado do mês corrente, cobranças vencidas, frota e alertas da equipe."
+        title={primeiroNome ? `Olá, ${primeiroNome}` : 'Painel'}
+        description={
+          user?.company
+            ? `Situação da ${user.company.name} hoje, ${formatDate(new Date())}.`
+            : `Situação da frota hoje, ${formatDate(new Date())}.`
+        }
       />
 
       <div className="flex flex-col gap-4">
-        {podeFinanceiro ? <DreBlock /> : <PermissionNotice area="Resultado financeiro" />}
+        <PrimeirosPassos />
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          {podeFinanceiro ? (
-            <InadimplenciaBlock />
-          ) : (
-            <Card>
-              <h2 className="flex items-center gap-2 text-base font-semibold text-ink-50">
-                <TrendingDown size={18} aria-hidden="true" /> Inadimplência
-              </h2>
-              <p className="mt-2 text-sm text-ink-400">
-                Área financeira não habilitada para o seu vínculo.
-              </p>
-            </Card>
-          )}
-          <FrotaBlock />
-        </div>
+        {podeFinanceiro ? (
+          <>
+            <div className="grid items-start gap-4 xl:grid-cols-2">
+              <ResultadoDoMes />
+              <QuemNaoPagou />
+            </div>
+          </>
+        ) : (
+          <PermissionNotice area="O resultado financeiro" flag="canManageFinance" variante="oculta" />
+        )}
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <AlertasBlock />
-          <Card>
-            <h2 className="flex items-center gap-2 text-base font-semibold text-ink-50">
-              <TrendingUp size={18} aria-hidden="true" /> Próximos passos
-            </h2>
-            {/* Links dentro de frase: excecao de link inline da WCAG 2.5.8, alvo minimo nao se aplica. */}
-            <ul className="mt-3 flex flex-col gap-2 text-sm text-ink-200">
-              <li>
-                <Link to="/app/alunos" className="text-brand-400 underline">
-                  Cadastrar alunos
-                </Link>{' '}
-                — a base da mensalidade e da lista de embarque.
-              </li>
-              <li>
-                <Link to="/app/frota" className="text-brand-400 underline">
-                  Cadastrar veículos e motoristas
-                </Link>{' '}
-                — sem isso não há ponto nem escala de fretamento.
-              </li>
-              <li>
-                <Link to="/app/equipe" className="text-brand-400 underline">
-                  Convidar a equipe
-                </Link>{' '}
-                — cada pessoa entra com o próprio acesso e as permissões que você escolher.
-              </li>
-            </ul>
-          </Card>
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <Frota />
+          <Alertas />
         </div>
       </div>
     </div>

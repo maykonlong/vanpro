@@ -17,3 +17,8 @@ api/storage/
 playwright-report/
 test-results/
 .blindar/
+
+# Material de TLS gerado localmente. A chave privada da CA abre a porta de
+# TODOS os certificados que ela assinou — inclusive o do banco.
+infra/certs/
+backups/

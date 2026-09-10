@@ -115,7 +115,13 @@ ARQ_BANCO="$DESTINO/banco-$CARIMBO.dump"
 # Um pg_dump mais antigo que o servidor recusa com "server version mismatch" e
 # o backup simplesmente não acontece — por isso a falha aqui é fatal, não aviso.
 info "banco -> $ARQ_BANCO"
-if ! pg_dump "$URL" --format=custom --no-owner --no-acl --file "$ARQ_BANCO"; then
+# `--dbname=` e nao a URL como argumento POSICIONAL.
+#
+# `pg_dump "$URL" --format=custom ...` e a forma que aparece em todo tutorial e
+# que o pg_dump 16 do Windows recusa com "too many command-line arguments
+# (first is --format=custom)" — uma mensagem que acusa a opcao seguinte e nao
+# diz nada sobre posicao. Na forma nomeada nao ha ambiguidade em build nenhum.
+if ! pg_dump --dbname="$URL" --format=custom --no-owner --no-acl --file "$ARQ_BANCO"; then
   rm -f "$ARQ_BANCO"
   erro "pg_dump falhou. Confira a DATABASE_URL e se a versao do cliente alcanca a do servidor (PostgreSQL 16)."
 fi
@@ -171,22 +177,22 @@ if [ "$VERIFICAR" -eq 1 ]; then
   URL_BK="$(printf '%s' "$URL" | sed "s|/[^/?]*\(?.*\)\{0,1\}$|/$BK_NOME\1|")"
 
   limpar_bk() {
-    psql "$URL" -tAc "DROP DATABASE IF EXISTS \"$BK_NOME\";" >/dev/null 2>&1 || true
+    psql --dbname="$URL" -tAc "DROP DATABASE IF EXISTS \"$BK_NOME\";" >/dev/null 2>&1 || true
   }
   trap limpar_bk EXIT
 
   info "verificando por restauracao em $BK_NOME…"
-  if ! psql "$URL" -tAc "CREATE DATABASE \"$BK_NOME\";" >/dev/null 2>&1; then
+  if ! psql --dbname="$URL" -tAc "CREATE DATABASE \"$BK_NOME\";" >/dev/null 2>&1; then
     erro "nao consegui criar o banco de verificacao $BK_NOME. O usuario da DATABASE_URL precisa de CREATEDB, ou rode a verificacao a partir de um host que tenha."
   fi
 
-  if ! pg_restore --no-owner --no-acl -d "$URL_BK" "$ARQ_BANCO" >/dev/null 2>&1; then
+  if ! pg_restore --no-owner --no-acl --dbname="$URL_BK" "$ARQ_BANCO" >/dev/null 2>&1; then
     # pg_restore emite aviso sobre objeto ausente mesmo em restauração boa
     # (extensões, roles). O que decide é a contagem abaixo, não o status.
     info "pg_restore devolveu avisos — quem decide e a contagem, nao o status"
   fi
 
-  N_TAB_BK="$(psql "$URL_BK" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')"
+  N_TAB_BK="$(psql --dbname="$URL_BK" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')"
   info "restaurado: ${N_TAB_BK:-0} tabela(s) em public"
 
   if [ "${N_TAB_BK:-0}" -eq 0 ]; then
@@ -198,7 +204,7 @@ if [ "$VERIFICAR" -eq 1 ]; then
   # necessariamente falha (base recém-criada), mas é fato que o operador tem de
   # ver — e é o que pega o dump feito contra o banco de teste por engano.
   for tabela in Company Student Invoice; do
-    N="$(psql "$URL_BK" -tAc "SELECT count(*) FROM public.\"$tabela\";" 2>/dev/null | tr -d ' ')"
+    N="$(psql --dbname="$URL_BK" -tAc "SELECT count(*) FROM public.\"$tabela\";" 2>/dev/null | tr -d ' ')"
     if [ -z "$N" ]; then
       aviso "tabela \"$tabela\" ausente no dump restaurado — o schema nao e o do VanPro. NAO trate este arquivo como backup de producao."
     else

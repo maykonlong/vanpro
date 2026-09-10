@@ -89,7 +89,6 @@ function Integracoes() {
             [
               ['Cobrança', flags.data.billing],
               ['WhatsApp', flags.data.whatsapp],
-              ['Mapas', flags.data.maps],
             ] as const
           ).map(([nome, ligado]) => (
             <li key={nome}>
@@ -231,7 +230,7 @@ function DoisFatores() {
       <SuccessNote message={aviso} />
 
       {recoveryCodes ? (
-        <div className="mt-4 rounded-lg border border-warn-400/40 bg-amber-950/40 p-3">
+        <div className="mt-4 rounded-lg border border-warn-400/40 bg-warn-soft p-3">
           <p className="text-sm font-semibold text-warn-400">
             Guarde estes códigos agora. Eles não serão exibidos novamente.
           </p>

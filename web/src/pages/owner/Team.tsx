@@ -152,7 +152,7 @@ export function Team() {
 
       {!podeConvidar && !ehDono ? (
         <div className="mb-4">
-          <PermissionNotice area="Convite e alteração de permissões" />
+          <PermissionNotice area="Equipe" flag="canManageHR" />
         </div>
       ) : null}
 
@@ -162,7 +162,7 @@ export function Team() {
             message={`Convite criado para ${inviteInfo.member.email}, válido até ${formatDate(inviteInfo.inviteExpiresAt)}.`}
           />
           {!inviteInfo.emailSent ? (
-            <p className="rounded-lg border border-warn-400/40 bg-amber-950/40 px-3 py-2 text-sm text-warn-400">
+            <p className="rounded-lg border border-warn-400/40 bg-warn-soft px-3 py-2 text-sm text-warn-400">
               Não há provedor de e-mail configurado neste ambiente: o convite NÃO foi enviado.
               Entregue o link manualmente.
               {inviteInfo.inviteLink ? (

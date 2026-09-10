@@ -3,6 +3,18 @@
 #
 #   bash infra/scripts/verificar-deploy.sh https://vanpro.exemplo.com.br
 #
+# Variaveis de ambiente:
+#   VANPRO_CA        arquivo de CA local. Se o certificado for recusado pela
+#                    loja do sistema MAS aceito por esta ancora, o resultado e
+#                    NV (nao verificado) e nao FALHA — sao duas coisas
+#                    diferentes: "certificado invalido" contra "voce ainda nao
+#                    instalou a CA nesta maquina". Padrao: infra/certs/ca.crt,
+#                    se existir.
+#   VANPRO_URL_HTTP  URL em texto claro a testar (padrao: mesmo host, porta 80).
+#                    Necessario quando a stack publica o HTTPS fora da 443.
+#   VANPRO_LOGIN     e VANPRO_SENHA: credencial VALIDA. Com elas, as flags do
+#                    cookie de sessao passam de NV para medicao de verdade.
+#
 # Bate de FORA, contra a URL pública — não contra `localhost` de dentro do host,
 # e não contra o contêiner. O que interessa é o que chega ao navegador do dono
 # da van, depois de passar por todo proxy, WAF e CDN do caminho.
@@ -26,7 +38,7 @@
 #   2  uso incorreto
 set -uo pipefail
 
-ajuda() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; }
+ajuda() { sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; }
 
 case "${1:-}" in
   -h|--help) ajuda; exit 0 ;;
@@ -46,6 +58,26 @@ titulo() { printf '\n─── %s ───\n' "$1"; }
 # que o navegador vai recusar. Testar com -k é testar outra coisa.
 CURL='curl -sS --max-time 20'
 
+# Ancora local, se houver. Ela NAO entra no `$CURL` padrao: o teste principal
+# tem de continuar sendo "o navegador de um estranho aceita este certificado?".
+# Ela serve so para separar os dois desfechos de uma recusa.
+CA_LOCAL="${VANPRO_CA:-}"
+if [ -z "$CA_LOCAL" ]; then
+  _padrao="$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd)/infra/certs/ca.crt"
+  [ -f "$_padrao" ] && CA_LOCAL="$_padrao"
+fi
+
+# Windows: o curl do sistema usa Schannel, que consulta CRL/OCSP e trata
+# "revogacao desconhecida" como falha. Certificado de CA local nao publica CRL
+# nenhuma, entao ele reprova ali por um motivo que nao e o certificado. O
+# afrouxamento fica preso ao ramo de DIAGNOSTICO (o que so produz NV) — a
+# verificacao principal, a que decide PASS ou FAIL, continua sendo a loja de
+# CAs do sistema, sem nenhuma opcao extra.
+CURL_REVOGACAO=''
+case "$($CURL --version 2>/dev/null | head -1)" in
+  *Schannel*) CURL_REVOGACAO='--ssl-revoke-best-effort' ;;
+esac
+
 cabecalhos() { $CURL -o /dev/null -D - "$@" 2>/dev/null; }
 cab() { printf '%s' "$1" | grep -i "^$2:" | head -1 | tr -d '\r'; }
 codigo() { $CURL -o /dev/null -w '%{http_code}' "$@" 2>/dev/null; }
@@ -59,9 +91,28 @@ if [ "${BASE#https://}" = "$BASE" ]; then
   FAIL 'a URL nao e https. Sem TLS o cookie de sessao sai sem Secure e o HSTS nunca e emitido.'
 else
   if $CURL -o /dev/null "$API/health/live" 2>/dev/null; then
-    PASS 'certificado aceito sem -k (cadeia valida, nome bate)'
+    PASS 'certificado aceito sem -k pela loja de CAs do sistema (cadeia valida, nome bate)'
+  elif [ -n "$CA_LOCAL" ] && $CURL --cacert "$CA_LOCAL" $CURL_REVOGACAO -o /dev/null "$API/health/live" 2>/dev/null; then
+    # Dois desfechos MUITO diferentes, e reprovar os dois igual e o que faz uma
+    # equipe passar a rodar tudo com -k:
+    #   cert invalido        -> a garantia nao existe. FALHA.
+    #   CA local nao instalada -> a garantia existe e ESTA MAQUINA ainda nao a
+    #                            conhece. Nao da para afirmar o que o navegador
+    #                            de um terceiro faria: e NAO VERIFICADO.
+    NV "certificado assinado pela CA local ($CA_LOCAL) e valido, mas esta maquina nao a reconhece pela loja do sistema. Instale a ancora (veja gerar-certificados.sh) e rode de novo — ate la nao da para afirmar o que o navegador de um terceiro faz."
+
+    # A partir daqui o resto das checagens passa a usar a ancora local.
+    #
+    # Sem isto, UMA pendencia de confianca cega as outras onze verificacoes —
+    # HSTS, CSP, fail-closed, metricas, login — e o relatorio sai com "nao deu
+    # para medir" em tudo, o que e pior que inutil: some a diferenca entre um
+    # deploy sem CSP e um deploy cuja CA voce ainda nao instalou. A ressalva ja
+    # esta registrada como NV logo acima e continua valendo no veredito.
+    CURL="$CURL --cacert $CA_LOCAL $CURL_REVOGACAO"
+    printf '        (as verificacoes abaixo seguem com a ancora local; a ressalva acima continua valendo)
+'
   else
-    FAIL 'o certificado NAO foi aceito sem -k. Um cert que so passa com -k o navegador recusa.'
+    FAIL 'o certificado NAO foi aceito sem -k, nem pela CA local. Um cert que so passa com -k o navegador recusa.'
   fi
 
   # Três desfechos em HTTP puro, e eles NÃO são equivalentes:
@@ -69,15 +120,22 @@ else
   #                  nenhum. O custo é quem digita o endereço sem esquema.
   #   redireciona  → aceitável. Nenhum byte da aplicação passa por HTTP.
   #   responde 200 → FALHA. A aplicação está servindo em claro.
-  SEM_TLS="http://${BASE#https://}"
+  # A URL em claro nao e "a mesma trocando o esquema": se o HTTPS esta publicado
+  # numa porta que nao e a 443, `http://host:8443` bate na porta TLS e o nginx
+  # responde 400 ("plain HTTP request sent to HTTPS port") — que seria contado
+  # como falha sem ter nada a ver com a aplicacao servir em claro. Por isso o
+  # host vem sem porta, e quem publica em porta diferente informa VANPRO_URL_HTTP.
+  _hostport="${BASE#https://}"
+  SEM_TLS="${VANPRO_URL_HTTP:-http://${_hostport%%:*}}"
+  SEM_TLS="${SEM_TLS%/}"
   R="$(cabecalhos "$SEM_TLS/" )"
   loc="$(cab "$R" 'location')"
   cod="$(codigo "$SEM_TLS/")"
   case "$loc:$cod" in
     *https://*) PASS 'porta 80 redireciona para https (nenhum byte da app em claro)' ;;
     :000)       PASS 'nao ha ouvinte em HTTP — nem redirect existe. E o mais estrito.' ;;
-    :200)       FAIL 'a aplicacao RESPONDE em HTTP puro na porta 80. Feche ou redirecione.' ;;
-    *)          FAIL "porta 80 responde $cod sem mandar para https" ;;
+    :200)       FAIL "a aplicacao RESPONDE em HTTP puro em $SEM_TLS. Feche ou redirecione." ;;
+    *)          FAIL "$SEM_TLS responde $cod sem mandar para https" ;;
   esac
 fi
 
@@ -243,7 +301,56 @@ case "$cl" in
   *)       FAIL "login respondeu $cl para credencial invalida (esperado 400/401)" ;;
 esac
 
-NV 'flags do cookie de sessao (Secure/HttpOnly/SameSite) exigem um login que FUNCIONE — rode com credencial valida para fechar esta.'
+# ─────────────────────────────────────────────────────────────────────────────
+titulo 'Flags do cookie de sessao'
+#
+# So da para medir com um login que FUNCIONE: o cookie de sessao nao existe numa
+# resposta de credencial invalida. Sem credencial, isto e NAO VERIFICADO — e nao
+# "provavelmente esta certo".
+if [ -z "${VANPRO_LOGIN:-}" ] || [ -z "${VANPRO_SENHA:-}" ]; then
+  NV 'flags do cookie de sessao (Secure/HttpOnly/SameSite) exigem um login que FUNCIONE. Rode com VANPRO_LOGIN=... VANPRO_SENHA=... para fechar esta.'
+else
+  CORPO="$(printf '{"email":"%s","password":"%s"}' "$VANPRO_LOGIN" "$VANPRO_SENHA")"
+  RESP="$($CURL -o /dev/null -D - -X POST -H 'Content-Type: application/json' -d "$CORPO" "$API/auth/login" 2>/dev/null)"
+  COOKIES="$(printf '%s' "$RESP" | grep -i '^set-cookie:' | sed 's/\r$//')"
+  COD_OK="$(printf '%s' "$RESP" | head -1 | awk '{print $2}')"
+
+  if [ -z "$COOKIES" ]; then
+    NV "o login com a credencial informada nao devolveu Set-Cookie (HTTP ${COD_OK:-?}). Confira usuario e senha — sem cookie nao ha o que medir."
+  else
+    # Uma linha por cookie, e a verificacao e sobre TODAS: basta um cookie de
+    # sessao sem HttpOnly para o XSS ler a sessao inteira. Verificar so o
+    # primeiro Set-Cookie e o erro que faz a checagem passar num deploy em que
+    # o refresh token esta exposto.
+    ruins=''
+    while IFS= read -r linha; do
+      [ -n "$linha" ] || continue
+      nome="$(printf '%s' "$linha" | sed 's/^[Ss]et-[Cc]ookie: *//; s/=.*//')"
+      falta=''
+      # O cookie de CSRF e a UNICA excecao a HttpOnly, e ela e por desenho:
+      # no padrao de duplo envio o front PRECISA ler o valor para repetir no
+      # cabecalho — um site de terceiro consegue disparar a requisicao com o
+      # cookie anexado, mas nao consegue le-lo. Exigir HttpOnly aqui reprovaria
+      # a defesa de CSRF por implementar CSRF. `Secure` e `SameSite` continuam
+      # obrigatorios nele.
+      case "$nome" in
+        *csrf*|*CSRF*|*xsrf*|*XSRF*) : ;;
+        *) printf '%s' "$linha" | grep -qi 'httponly' || falta="$falta HttpOnly" ;;
+      esac
+      printf '%s' "$linha" | grep -qi 'secure'   || falta="$falta Secure"
+      printf '%s' "$linha" | grep -qi 'samesite=\(strict\|lax\)' || falta="$falta SameSite"
+      [ -n "$falta" ] && ruins="$ruins $nome($falta )"
+    done <<EOF
+$COOKIES
+EOF
+
+    if [ -z "$ruins" ]; then
+      PASS "cookie(s) de sessao com HttpOnly, Secure e SameSite"
+    else
+      FAIL "cookie de sessao sem as flags exigidas:$ruins — XSS le cookie sem HttpOnly, e cookie sem Secure viaja em claro."
+    fi
+  fi
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 titulo 'Veredito'

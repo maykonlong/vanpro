@@ -79,7 +79,8 @@ node infra/scripts/gen-secrets.mjs        # gera valores novos
 |---|---|---|
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | derruba **todas** as sessões, de todos | é o objetivo; avise o suporte antes |
 | `ASAAS_WEBHOOK_TOKEN` | webhooks passam a ser recusados até reconfigurar no gateway | reconfigure no painel do Asaas no mesmo movimento |
-| `ASAAS_API_KEY`, `WHATSAPP_TOKEN`, `GOOGLE_MAPS_KEY` | integração cai para `503 FEATURE_DISABLED` | comportamento declarado, não é falha |
+| `ASAAS_API_KEY`, `WHATSAPP_TOKEN` | integração cai para `503 FEATURE_DISABLED` | comportamento declarado, não é falha |
+| `POSTGRES_OWNER_PASSWORD`, `POSTGRES_APP_PASSWORD` | trocar com `gen-secrets.mjs --write --rotacionar-banco` **e** aplicar os `ALTER ROLE` que ele imprime | só o arquivo não troca o servidor |
 | `PRISMA_FIELD_ENCRYPTION_KEY` | **NÃO rotacione sob pressão** | trocar a chave sem re-cifrar o banco torna nome, endereço e foto de todos os alunos ilegíveis. É uma migração de dados planejada, nunca um passo de contenção |
 | `POSTGRES_PASSWORD` | exige reiniciar `api` e `migrate` | rotacione junto com a `DATABASE_URL` |
 

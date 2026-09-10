@@ -192,7 +192,7 @@ export function Login() {
       footer={
         <p>
           Ainda não tem conta?{' '}
-          <Link to="/cadastro" className="text-brand-400 underline">
+          <Link to="/cadastro" className="text-brand-600 underline">
             Cadastre sua empresa
           </Link>
         </p>
@@ -230,7 +230,7 @@ export function Login() {
         Entrar com passkey
       </Button>
 
-      <Link to="/esqueci-a-senha" className="inline-flex min-h-[44px] items-center text-sm text-brand-400 underline">
+      <Link to="/esqueci-a-senha" className="inline-flex min-h-[44px] items-center text-sm text-brand-600 underline">
         Esqueci minha senha
       </Link>
     </AuthShell>

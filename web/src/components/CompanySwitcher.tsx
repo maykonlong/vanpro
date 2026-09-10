@@ -79,7 +79,7 @@ export function CompanySwitcher() {
         aria-label={`Frota ativa: ${ativa?.companyName ?? 'nenhuma'}. Trocar de frota`}
         className="flex min-h-[44px] min-w-[44px] items-center gap-2 rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-ink-50 hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        <Building2 aria-hidden="true" size={18} className="shrink-0 text-brand-400" />
+        <Building2 aria-hidden="true" size={18} className="shrink-0 text-brand-600" />
         <span className="flex flex-col items-start leading-tight">
           <span className="text-[11px] font-normal text-ink-400">Frota ativa</span>
           <span
@@ -127,7 +127,7 @@ export function CompanySwitcher() {
                       </span>
                     </span>
                     {atual ? (
-                      <span className="flex shrink-0 items-center gap-1 text-xs text-brand-400">
+                      <span className="flex shrink-0 items-center gap-1 text-xs text-brand-600">
                         <Check aria-hidden="true" size={16} />
                         Ativa
                       </span>

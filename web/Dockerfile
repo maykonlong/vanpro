@@ -21,9 +21,10 @@ RUN npm run build
 # --- runtime ---------------------------------------------------------------
 FROM nginx:alpine AS runner
 
-# Porta 8080 e nao 80: abaixo de 1024 exige privilegio, e este container roda
-# como usuario comum.
+# Portas 8080/8443 e nao 80/443: abaixo de 1024 exige privilegio, e este
+# container roda como usuario comum. A 8080 so redireciona; a app vive na 8443.
 COPY nginx.conf /etc/nginx/nginx.conf
+COPY seguranca.conf /etc/nginx/vanpro-seguranca.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Diretorios de escrita do nginx pertencem ao usuario nao-root; sem isso o
@@ -34,7 +35,7 @@ RUN rm -f /etc/nginx/conf.d/default.conf \
 
 USER nginx
 
-EXPOSE 8080
+EXPOSE 8080 8443
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1

@@ -63,7 +63,6 @@ router.get('/features', (_req, res) => {
   res.json({
     billing: features.billing,
     whatsapp: features.whatsapp,
-    maps: features.maps,
   });
 });
 
