@@ -229,11 +229,30 @@ async function autenticar(contexto: BrowserContext, conta: Conta): Promise<void>
      */
     if (dados.requires2FA) {
       expect(conta.segredo2FA, `${conta.email} exige 2FA mas a conta de teste não tem segredo`).toBeTruthy();
-      const codigo = authenticator.generate(conta.segredo2FA!);
-      const segunda = await chamar('/api/v1/auth/2fa/login', {
+
+      /*
+       * Uma segunda tentativa com o código SEGUINTE.
+       *
+       * O código muda a cada 30 segundos. Gerado no fim de uma janela e
+       * verificado depois de a requisição atravessar nginx, API e bcrypt, ele
+       * cai fora — o servidor tolera uma janela para trás (RFC 6238), e ainda
+       * assim sobra a borda. É exatamente o que uma pessoa faz ao ver "código
+       * inválido": espera virar e digita o próximo. Sem isto, a suíte falha uma
+       * vez a cada tantas execuções e a falha parece defeito de autenticação.
+       */
+      let segunda = await chamar('/api/v1/auth/2fa/login', {
         challengeId: dados.challengeId,
-        code: codigo,
+        code: authenticator.generate(conta.segredo2FA!),
       });
+
+      if (segunda.status >= 400) {
+        await new Promise((ok) => setTimeout(ok, 31_000));
+        segunda = await chamar('/api/v1/auth/2fa/login', {
+          challengeId: dados.challengeId,
+          code: authenticator.generate(conta.segredo2FA!),
+        });
+      }
+
       expect(
         segunda.status,
         `segunda etapa de ${conta.email} falhou: ${segunda.texto.slice(0, 300)}`,
