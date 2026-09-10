@@ -1,0 +1,1412 @@
+<title>Vistoria VanPro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@400;500;600;700&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  /* ---------------------------------------------------------------------
+     Tokens. Tudo declarado no :root claro; os blocos de tema só redefinem.
+     Paleta: tinta de documento veicular (azul-ardósia), papel levemente frio,
+     acento petróleo (carimbo de vistoria). Semântica separada do acento.
+     ------------------------------------------------------------------- */
+  :root {
+    --papel:        #EEF1F0;
+    --papel-fundo:  #E4E9E8;
+    --superficie:   #FFFFFF;
+    --tinta:        #16232B;
+    --tinta-media:  #47585F;
+    --tinta-fraca:  #7B8C91;
+    --linha:        #D2DAD9;
+    --linha-forte:  #B9C5C3;
+
+    --petroleo:     #0B5F66;
+    --petroleo-sub: #E0EDED;
+
+    --bom:          #2F7D4F;
+    --bom-sub:      #E2EFE7;
+    --ressalva:     #A9690F;
+    --ressalva-sub: #F5EBDC;
+    --grave:        #A63A2E;
+    --grave-sub:    #F5E3E0;
+
+    --sombra: 0 1px 2px rgba(22,35,43,.06), 0 8px 24px -16px rgba(22,35,43,.28);
+
+    --display: "Zilla Slab", Georgia, "Times New Roman", serif;
+    --corpo: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --dado: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --papel:        #131B20;
+      --papel-fundo:  #0D1418;
+      --superficie:   #1A242A;
+      --tinta:        #E7EDEB;
+      --tinta-media:  #A8B7B9;
+      --tinta-fraca:  #78888B;
+      --linha:        #2A363C;
+      --linha-forte:  #3B4A50;
+
+      --petroleo:     #63BFC2;
+      --petroleo-sub: #163335;
+
+      --bom:          #6FC08C;
+      --bom-sub:      #172E22;
+      --ressalva:     #E0A94E;
+      --ressalva-sub: #322612;
+      --grave:        #E58B7C;
+      --grave-sub:    #35201C;
+
+      --sombra: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --papel:        #131B20;
+    --papel-fundo:  #0D1418;
+    --superficie:   #1A242A;
+    --tinta:        #E7EDEB;
+    --tinta-media:  #A8B7B9;
+    --tinta-fraca:  #78888B;
+    --linha:        #2A363C;
+    --linha-forte:  #3B4A50;
+
+    --petroleo:     #63BFC2;
+    --petroleo-sub: #163335;
+
+    --bom:          #6FC08C;
+    --bom-sub:      #172E22;
+    --ressalva:     #E0A94E;
+    --ressalva-sub: #322612;
+    --grave:        #E58B7C;
+    --grave-sub:    #35201C;
+
+    --sombra: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--papel-fundo);
+    color: var(--tinta);
+    font-family: var(--corpo);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .folha {
+    max-width: 1060px;
+    margin: 0 auto;
+    padding: 0 20px 96px;
+  }
+
+  h1, h2, h3, h4 { font-family: var(--display); text-wrap: balance; margin: 0; }
+  p { margin: 0; }
+  ul { margin: 0; padding: 0; list-style: none; }
+
+  .eyebrow {
+    font-family: var(--dado);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--tinta-fraca);
+  }
+
+  /* --- Cabeçalho ---------------------------------------------------- */
+
+  .capa {
+    background: var(--superficie);
+    border: 1px solid var(--linha);
+    border-top: 4px solid var(--petroleo);
+    padding: 36px 36px 32px;
+    margin-top: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    box-shadow: var(--sombra);
+  }
+
+  .capa-topo {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px 32px;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .capa h1 {
+    font-size: clamp(34px, 5.2vw, 52px);
+    font-weight: 700;
+    line-height: 1.04;
+    letter-spacing: -.015em;
+  }
+
+  .capa h1 span { color: var(--petroleo); }
+
+  .capa-sub {
+    margin-top: 10px;
+    font-size: 18px;
+    color: var(--tinta-media);
+    max-width: 54ch;
+  }
+
+  .selo {
+    border: 2px solid var(--ressalva);
+    color: var(--ressalva);
+    background: var(--ressalva-sub);
+    padding: 12px 18px;
+    text-align: center;
+    flex-shrink: 0;
+    transform: rotate(-1.5deg);
+  }
+  .selo strong {
+    display: block;
+    font-family: var(--display);
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: .02em;
+  }
+  .selo span {
+    font-family: var(--dado);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+
+  .identificacao {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1px;
+    background: var(--linha);
+    border: 1px solid var(--linha);
+  }
+  .identificacao div {
+    background: var(--superficie);
+    padding: 12px 14px;
+  }
+  .identificacao dt {
+    font-family: var(--dado);
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--tinta-fraca);
+  }
+  .identificacao dd {
+    margin: 4px 0 0;
+    font-family: var(--dado);
+    font-size: 15px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* --- Blocos ------------------------------------------------------- */
+
+  .bloco { margin-top: 56px; }
+
+  .bloco > h2 {
+    font-size: 27px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+  .bloco > .intro {
+    margin-top: 10px;
+    color: var(--tinta-media);
+    max-width: 66ch;
+  }
+
+  /* --- Painel de notas ---------------------------------------------- */
+
+  .painel {
+    margin-top: 24px;
+    background: var(--superficie);
+    border: 1px solid var(--linha);
+    padding: 28px 30px 24px;
+    box-shadow: var(--sombra);
+  }
+
+  .escala {
+    display: grid;
+    grid-template-columns: minmax(150px, 210px) 1fr 52px;
+    gap: 0 16px;
+    align-items: center;
+  }
+
+  .escala-regua {
+    grid-column: 2;
+    position: relative;
+    height: 20px;
+    border-bottom: 1px solid var(--linha-forte);
+    margin-bottom: 8px;
+  }
+  .escala-regua span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    font-family: var(--dado);
+    font-size: 10.5px;
+    color: var(--tinta-fraca);
+    font-variant-numeric: tabular-nums;
+  }
+  .escala-regua span::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 15px;
+    width: 1px;
+    height: 5px;
+    background: var(--linha-forte);
+  }
+
+  .linha-nota {
+    display: contents;
+  }
+  .linha-nota > a {
+    font-size: 15.5px;
+    color: var(--tinta);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    padding: 7px 0;
+  }
+  .linha-nota > a:hover,
+  .linha-nota > a:focus-visible { border-bottom-color: var(--petroleo); color: var(--petroleo); }
+
+  .trilho {
+    position: relative;
+    height: 13px;
+    background: var(--papel);
+    border: 1px solid var(--linha);
+  }
+  .trilho i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    display: block;
+  }
+  .trilho::before,
+  .trilho::after {
+    content: "";
+    position: absolute;
+    top: -1px;
+    bottom: -1px;
+    width: 1px;
+    background: var(--linha-forte);
+  }
+  .trilho::before { left: 60%; }
+  .trilho::after  { left: 85%; }
+
+  .valor {
+    font-family: var(--dado);
+    font-size: 15px;
+    font-weight: 600;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .f-bom      { background: var(--bom); }
+  .f-ressalva { background: var(--ressalva); }
+  .f-grave    { background: var(--grave); }
+  .v-bom      { color: var(--bom); }
+  .v-ressalva { color: var(--ressalva); }
+  .v-grave    { color: var(--grave); }
+
+  .legenda {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--linha);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 24px;
+    font-size: 14px;
+    color: var(--tinta-media);
+  }
+  .legenda b { font-weight: 600; }
+  .chave {
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    margin-right: 7px;
+    vertical-align: -1px;
+  }
+
+  /* --- Números de capa ---------------------------------------------- */
+
+  .numeros {
+    margin-top: 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1px;
+    background: var(--linha);
+    border: 1px solid var(--linha);
+  }
+  .numeros > div {
+    background: var(--superficie);
+    padding: 18px 20px 20px;
+  }
+  .numeros b {
+    display: block;
+    font-family: var(--dado);
+    font-size: 30px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--petroleo);
+  }
+  .numeros p { font-size: 14.5px; color: var(--tinta-media); margin-top: 2px; }
+
+  /* --- Nota de leitura ---------------------------------------------- */
+
+  .aviso {
+    margin-top: 24px;
+    background: var(--petroleo-sub);
+    border-left: 4px solid var(--petroleo);
+    padding: 22px 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .aviso h3 { font-size: 19px; font-weight: 600; }
+  .aviso p { max-width: 72ch; }
+  .aviso strong { font-weight: 700; }
+
+  /* --- Setor -------------------------------------------------------- */
+
+  .grupo { margin-top: 44px; }
+  .grupo > header {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--tinta);
+  }
+  .grupo > header h3 { font-size: 21px; font-weight: 600; }
+  .grupo > header p { font-size: 14.5px; color: var(--tinta-media); }
+
+  .setor {
+    background: var(--superficie);
+    border: 1px solid var(--linha);
+    border-top: none;
+    padding: 26px 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .setor-cabeca {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+  .setor-cabeca h4 { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+  .setor-frase { margin-top: 6px; color: var(--tinta-media); max-width: 62ch; }
+
+  .setor-nota { text-align: right; flex-shrink: 0; }
+  .setor-nota .pct {
+    font-family: var(--dado);
+    font-size: 38px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -.03em;
+    font-variant-numeric: tabular-nums;
+    display: block;
+  }
+  .setor-nota .pct small { font-size: 18px; font-weight: 500; }
+  .pill {
+    display: inline-block;
+    margin-top: 8px;
+    font-family: var(--dado);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    white-space: nowrap;
+  }
+  .p-bom      { background: var(--bom-sub);      color: var(--bom); }
+  .p-ressalva { background: var(--ressalva-sub); color: var(--ressalva); }
+  .p-grave    { background: var(--grave-sub);    color: var(--grave); }
+
+  .colunas {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 26px;
+    padding-top: 4px;
+  }
+  .colunas h5 {
+    font-family: var(--dado);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--tinta-fraca);
+    margin: 0 0 10px;
+  }
+  .colunas li {
+    padding-left: 20px;
+    position: relative;
+    font-size: 15.5px;
+    line-height: 1.52;
+  }
+  .colunas li + li { margin-top: 9px; }
+  .colunas li::before {
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-family: var(--dado);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .tem li::before { content: "✓"; color: var(--bom); }
+  .falta li::before { content: "–"; color: var(--tinta-fraca); }
+
+  .destrava {
+    background: var(--papel);
+    border-left: 3px solid var(--petroleo);
+    padding: 12px 16px;
+    font-size: 15.5px;
+  }
+  .destrava b {
+    font-family: var(--dado);
+    font-size: 11.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--petroleo);
+    display: block;
+    margin-bottom: 3px;
+    font-weight: 600;
+  }
+
+  /* --- Tabelas ------------------------------------------------------ */
+
+  .rolagem { overflow-x: auto; margin-top: 22px; border: 1px solid var(--linha); background: var(--superficie); }
+  table { width: 100%; border-collapse: collapse; min-width: 640px; }
+  th, td { text-align: left; padding: 13px 18px; vertical-align: top; border-bottom: 1px solid var(--linha); }
+  th {
+    font-family: var(--dado);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--tinta-fraca);
+    background: var(--papel);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.prazo { font-family: var(--dado); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 14.5px; }
+  td strong { font-weight: 600; }
+  td small { display: block; color: var(--tinta-media); font-size: 14.5px; margin-top: 3px; line-height: 1.5; }
+
+  /* --- Linha do tempo ----------------------------------------------- */
+
+  .horizontes {
+    margin-top: 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+  }
+  .horizonte {
+    background: var(--superficie);
+    border: 1px solid var(--linha);
+    padding: 24px 24px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .horizonte h3 { font-size: 19px; font-weight: 600; }
+  .horizonte .quando {
+    font-family: var(--dado);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--petroleo);
+  }
+  .horizonte li {
+    padding-left: 18px;
+    position: relative;
+    font-size: 15.5px;
+    line-height: 1.5;
+  }
+  .horizonte li + li { margin-top: 10px; }
+  .horizonte li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 7px;
+    height: 7px;
+    background: var(--petroleo);
+  }
+
+  /* --- Mudanças ----------------------------------------------------- */
+
+  .mudancas {
+    margin-top: 22px;
+    display: grid;
+    gap: 1px;
+    background: var(--linha);
+    border: 1px solid var(--linha);
+  }
+  .mudanca {
+    background: var(--superficie);
+    padding: 20px 24px;
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 4px 24px;
+    align-items: start;
+  }
+  .mudanca .marca {
+    font-family: var(--dado);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    justify-self: start;
+    white-space: nowrap;
+  }
+  .m-critico { background: var(--grave-sub); color: var(--grave); }
+  .m-corrigido { background: var(--bom-sub); color: var(--bom); }
+  .m-novo { background: var(--petroleo-sub); color: var(--petroleo); }
+  .mudanca h4 { font-size: 18px; font-weight: 600; }
+  .mudanca p { grid-column: 2; color: var(--tinta-media); font-size: 15.5px; max-width: 72ch; }
+
+  /* --- Rodapé ------------------------------------------------------- */
+
+  .rodape {
+    margin-top: 60px;
+    padding-top: 24px;
+    border-top: 2px solid var(--tinta);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 40px;
+    justify-content: space-between;
+    align-items: flex-start;
+    font-size: 14.5px;
+    color: var(--tinta-media);
+  }
+  .rodape p { max-width: 60ch; }
+  .rodape code {
+    font-family: var(--dado);
+    font-size: 13.5px;
+    background: var(--papel);
+    padding: 2px 6px;
+    border: 1px solid var(--linha);
+  }
+
+  a { color: var(--petroleo); }
+  :focus-visible { outline: 2px solid var(--petroleo); outline-offset: 3px; }
+
+  @media (max-width: 720px) {
+    body { font-size: 16px; }
+    .capa { padding: 26px 22px; }
+    .painel { padding: 22px 18px 18px; }
+    .setor { padding: 22px 20px; }
+    .colunas { grid-template-columns: 1fr; gap: 20px; }
+    .escala { grid-template-columns: 1fr; }
+    .escala-regua { grid-column: 1; }
+    .linha-nota > a { padding-bottom: 3px; }
+    .linha-nota .valor { text-align: left; margin-top: 4px; margin-bottom: 12px; }
+    .mudanca { grid-template-columns: 1fr; }
+    .mudanca p { grid-column: 1; }
+    .setor-cabeca { flex-direction: column; }
+    .setor-nota { text-align: left; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="folha">
+
+  <!-- ================= CAPA ================= -->
+  <header class="capa">
+    <div class="capa-topo">
+      <div>
+        <p class="eyebrow">Laudo de vistoria do sistema</p>
+        <h1>VanPro,<br>item por <span>item</span></h1>
+        <p class="capa-sub">
+          O mesmo tipo de conferência que a van passa todo ano, aplicada ao sistema:
+          doze itens, cada um com nota, o que já está de pé e o que ainda falta.
+        </p>
+      </div>
+      <div class="selo">
+        <span>Resultado</span>
+        <strong>Aprovado</strong>
+        <span>com ressalvas</span>
+      </div>
+    </div>
+
+    <dl class="identificacao">
+      <div><dt>Data</dt><dd>10/09/2026</dd></div>
+      <div><dt>Versão</dt><dd>805fc2a</dd></div>
+      <div><dt>Nota geral</dt><dd>74&thinsp;%</dd></div>
+      <div><dt>Itens aprovados</dt><dd>5 de 12</dd></div>
+      <div><dt>Reprovados</dt><dd>1</dd></div>
+    </dl>
+  </header>
+
+  <!-- ================= PAINEL ================= -->
+  <section class="bloco">
+    <h2>As doze notas, numa tela</h2>
+    <p class="intro">
+      Da mais forte para a mais fraca. Clique em qualquer linha para ler o detalhe daquele item.
+    </p>
+
+    <div class="painel">
+      <div class="escala">
+        <div class="escala-regua" aria-hidden="true">
+          <span style="left:0">0</span>
+          <span style="left:60%">60</span>
+          <span style="left:85%">85</span>
+          <span style="left:100%">100</span>
+        </div>
+
+        <div class="linha-nota"><a href="#isolamento">Isolamento entre empresas</a><div class="trilho"><i class="f-bom" style="width:95%"></i></div><div class="valor v-bom">95%</div></div>
+        <div class="linha-nota"><a href="#seguranca">Segurança</a><div class="trilho"><i class="f-bom" style="width:92%"></i></div><div class="valor v-bom">92%</div></div>
+        <div class="linha-nota"><a href="#testes">Testes e provas</a><div class="trilho"><i class="f-bom" style="width:88%"></i></div><div class="valor v-bom">88%</div></div>
+        <div class="linha-nota"><a href="#privacidade">Privacidade e LGPD</a><div class="trilho"><i class="f-bom" style="width:85%"></i></div><div class="valor v-bom">85%</div></div>
+        <div class="linha-nota"><a href="#uso">Experiência de uso</a><div class="trilho"><i class="f-bom" style="width:85%"></i></div><div class="valor v-bom">85%</div></div>
+        <div class="linha-nota"><a href="#confiabilidade">Confiabilidade</a><div class="trilho"><i class="f-ressalva" style="width:80%"></i></div><div class="valor v-ressalva">80%</div></div>
+        <div class="linha-nota"><a href="#infra">Infraestrutura e publicação</a><div class="trilho"><i class="f-ressalva" style="width:78%"></i></div><div class="valor v-ressalva">78%</div></div>
+        <div class="linha-nota"><a href="#observabilidade">Enxergar o que acontece</a><div class="trilho"><i class="f-ressalva" style="width:72%"></i></div><div class="valor v-ressalva">72%</div></div>
+        <div class="linha-nota"><a href="#velocidade">Velocidade</a><div class="trilho"><i class="f-ressalva" style="width:70%"></i></div><div class="valor v-ressalva">70%</div></div>
+        <div class="linha-nota"><a href="#negocio">Regras do negócio</a><div class="trilho"><i class="f-ressalva" style="width:65%"></i></div><div class="valor v-ressalva">65%</div></div>
+        <div class="linha-nota"><a href="#escala">Escalabilidade</a><div class="trilho"><i class="f-grave" style="width:55%"></i></div><div class="valor v-grave">55%</div></div>
+        <div class="linha-nota"><a href="#integracoes">Integrações externas</a><div class="trilho"><i class="f-grave" style="width:25%"></i></div><div class="valor v-grave">25%</div></div>
+      </div>
+
+      <div class="legenda">
+        <span><i class="chave f-bom"></i><b>85 a 100</b> — aprovado</span>
+        <span><i class="chave f-ressalva"></i><b>60 a 84</b> — aprovado com ressalva</span>
+        <span><i class="chave f-grave"></i><b>abaixo de 60</b> — não segura o próximo passo</span>
+      </div>
+    </div>
+
+    <div class="numeros">
+      <div><b>388</b><p>testes automáticos, todos passando, contra banco de dados de verdade</p></div>
+      <div><b>97</b><p>telas e botões conferidos de ponta a ponta, nenhum pulado</p></div>
+      <div><b>19</b><p>travas que impedem defeitos antigos de voltarem</p></div>
+      <div><b>0</b><p>falhas graves em aberto na auditoria independente</p></div>
+    </div>
+
+    <div class="aviso">
+      <h3>Como ler estas notas</h3>
+      <p>
+        Cada nota sai do que foi <strong>executado e medido</strong>, não de opinião.
+        Onde não deu para medir, o item perde ponto — porque ausência de sinal não é aprovação:
+        um teste que não rodou não descobriu que está tudo bem, descobriu que está cego.
+      </p>
+      <p>
+        <strong>A média de 74% não é a nota que importa.</strong> O que decide é o item mais fraco
+        no caminho do que você quer fazer: para operar uma frota hoje, os itens que pesam estão todos
+        acima de 78. Para cobrar mensalidade pelo sistema ou atender dez frotas ao mesmo tempo,
+        os dois últimos da lista viram bloqueio.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= FUNDAÇÃO ================= -->
+  <section class="bloco">
+    <h2>Item por item</h2>
+    <p class="intro">
+      Os doze estão agrupados pelo papel que cumprem. Os quatro grupos vão do que não pode falhar
+      de jeito nenhum até o que define até onde o sistema vai.
+    </p>
+
+    <div class="grupo">
+      <header>
+        <h3>Fundação</h3>
+        <p>O que não pode falhar nunca. Se um destes cai, o resto não importa.</p>
+      </header>
+
+      <article class="setor" id="isolamento">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Isolamento entre empresas</h4>
+            <p class="setor-frase">
+              Uma frota nunca enxerga aluno, mensalidade ou motorista da outra — nem por engano,
+              nem forçando o endereço. É o ponto mais forte do sistema.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">95<small>%</small></span>
+            <span class="pill p-bom">Aprovado</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li>Toda consulta ao banco é reescrita para incluir a empresa. Não depende de o programador lembrar.</li>
+              <li>Sem empresa definida, a consulta <strong>falha</strong> em vez de trazer tudo — o contrário do padrão, que é o perigoso.</li>
+              <li>Provado ao vivo: uma dona vê 2 alunos, a outra vê 5; pedir o aluno da outra pelo endereço direto devolve "não existe".</li>
+              <li>A empresa ativa pertence à sessão, não à pessoa — o motorista que trabalha em duas frotas funciona de verdade.</li>
+              <li>O console da plataforma, único que atravessa empresas, exige segundo fator e registra quem olhou o quê.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li>A trava é da aplicação. O banco em si não tem uma segunda trava independente (RLS) como reforço.</li>
+              <li>Um evento da plataforma fica registrado, mas ainda não há tela para lê-lo.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Ligar a trava do próprio banco como segunda camada — hoje é reforço, não correção.</p>
+      </article>
+
+      <article class="setor" id="seguranca">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Segurança</h4>
+            <p class="setor-frase">
+              Quem entra, o que consegue fazer e o que acontece se alguém tentar forçar.
+              Foi o foco da auditoria e é onde mais coisa foi corrigida.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">92<small>%</small></span>
+            <span class="pill p-bom">Aprovado</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li>Senha nunca sai do servidor; a sessão vive num cookie que o navegador não deixa nenhum script ler.</li>
+              <li>A sessão se renova sozinha e, se alguém tentar reusar um token já usado, <strong>toda a família de acessos é derrubada</strong>.</li>
+              <li>Dados sensíveis — nome, endereço e foto de criança — ficam criptografados no disco. Conferido abrindo o arquivo do banco.</li>
+              <li>Conversa com o banco em TLS 1.3, com verificação dos dois lados; conexão sem criptografia é recusada.</li>
+              <li>Um filtro de borda barra injeção, poluição de objeto e payload malformado antes de chegar na regra de negócio.</li>
+              <li>Bloqueio progressivo após tentativas erradas, e limite de requisições compartilhado entre servidores.</li>
+              <li>Auditoria externa completa: <strong>nenhuma falha grave nova</strong>. Os 26 "críticos" apontados eram falso positivo, cada um conferido na origem.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li>O servidor onde isso vai rodar nunca foi inspecionado — firewall, portas, vizinhos. Isso é outro tipo de vistoria.</li>
+              <li>Chave de acesso física (passkey) ainda entra sem exigir biometria; ela vale como um fator, não dois.</li>
+              <li>Sem disjuntor nas chamadas a terceiros — hoje não pesa, porque nenhum terceiro está ligado.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Inspecionar o servidor de destino antes de publicar. Servidor não verificado não é servidor aprovado.</p>
+      </article>
+
+      <article class="setor" id="privacidade">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Privacidade e LGPD</h4>
+            <p class="setor-frase">
+              O sistema guarda nome, endereço, foto e rotina de criança. É a categoria de dado
+              que a lei trata com o rigor mais alto, e a que dá multa.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">85<small>%</small></span>
+            <span class="pill p-bom">Aprovado</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li>Registro formal de tratamento e avaliação de impacto escritos, apontando para código conferível.</li>
+              <li>As bases legais estão separadas do jeito certo: o transporte não depende de consentimento (senão retirá-lo encerraria o serviço no meio do ano), <strong>a imagem depende</strong>.</li>
+              <li>Aluno sem autorização de imagem não aparece nem na lista que alimenta material de divulgação.</li>
+              <li>Exportar os dados, corrigir e pedir exclusão funcionam — e continuam funcionando com a mensalidade da frota atrasada.</li>
+              <li>Pedido de exclusão passa por aprovação humana, porque obrigação fiscal pode impedir apagar na hora.</li>
+              <li>Trilha de auditoria encadeada: mexer numa linha antiga quebra a corrente e o sistema aponta onde.</li>
+              <li>Endereço de IP na trilha é reduzido à rede depois de 12 meses — implementado, com teste.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li>Leitura individual de ficha de aluno não é registrada (decisão consciente: registrar tudo inutilizaria a trilha).</li>
+              <li>Não há processo formal de encarregado de dados nem canal público de titular.</li>
+              <li>Log da aplicação não tem política escrita de descarte.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Nomear um encarregado e publicar o canal do titular — é exigência de lei, não de engenharia.</p>
+      </article>
+    </div>
+
+    <!-- ================= PROVA ================= -->
+    <div class="grupo">
+      <header>
+        <h3>Prova</h3>
+        <p>Como se sabe que funciona, sem depender de alguém dizer que funciona.</p>
+      </header>
+
+      <article class="setor" id="testes">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Testes e provas</h4>
+            <p class="setor-frase">
+              Cada botão e cada regra têm um teste que roda sozinho e falha se alguém quebrar.
+              Sem dado inventado: banco de verdade, sistema de verdade.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">88<small>%</small></span>
+            <span class="pill p-bom">Aprovado</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li><strong>388 testes</strong> de regra de negócio, todos passando, contra PostgreSQL real.</li>
+              <li><strong>97 cenários</strong> de tela, num navegador de verdade, contra o sistema publicado — não contra uma versão de desenvolvimento.</li>
+              <li>Nenhum cenário se declara "não verificado": o que dependia de um estado que faltava passou a <strong>criar</strong> esse estado.</li>
+              <li>19 travas automáticas, cada uma correspondendo a um defeito que já existiu aqui.</li>
+              <li>Medido duas vezes seguidas com o mesmo resultado — reprodutibilidade conferida, não assumida.</li>
+              <li>Roda inteiro no servidor de integração a cada mudança, e reprova quem quebrar.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li>Cobertura de 76% do código: os pedaços de fora dependem de serviços externos desligados.</li>
+              <li>Não há teste de carga: sabe-se como o sistema se comporta com 20 pessoas ao mesmo tempo, não com 200.</li>
+              <li>Exercício de falha proposital ainda não é rotina — os dois já feitos acharam o defeito mais grave do ciclo.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Um exercício de falha por trimestre e um teste de carga com volume de cliente real.</p>
+      </article>
+
+      <article class="setor" id="confiabilidade">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Confiabilidade</h4>
+            <p class="setor-frase">
+              O que acontece quando alguma peça cai. O ideal não é nunca cair — é cair
+              de um jeito que o motorista na rua não perceba.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">80<small>%</small></span>
+            <span class="pill p-ressalva">Com ressalva</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li>Com o cache fora, o sistema continua atendendo — provado congelando o serviço e medindo: 20 pedidos simultâneos, 20 atendidos.</li>
+              <li>Backup restaurado <strong>de verdade</strong>: 25 tabelas, 3 empresas, 40 alunos voltaram.</li>
+              <li>Voltar para a versão anterior foi exercitado, com o cuidado de não travar na migração do banco.</li>
+              <li>Desligamento gracioso em 89 milissegundos: nenhuma requisição morre no meio.</li>
+              <li>Nenhuma consulta segura o banco para sempre — tetos de tempo configurados.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li>Sem disjuntor para serviço externo lento: quando a cobrança for ligada, isso vira prioridade.</li>
+              <li>Roda num servidor só. Se ele cair, o sistema cai junto.</li>
+              <li>Backup não gera comprovante que um terceiro possa conferir sem acreditar no relato.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Comprovante automático de restauração e disjuntor entrando junto com a cobrança.</p>
+      </article>
+
+      <article class="setor" id="observabilidade">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Enxergar o que acontece</h4>
+            <p class="setor-frase">
+              Se der problema às 6h30 com a van na porta da escola, dá para saber o que houve
+              sem adivinhar?
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">72<small>%</small></span>
+            <span class="pill p-ressalva">Com ressalva</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li>Cada requisição tem um número próprio que aparece no erro da tela e no registro do servidor — dá para casar os dois.</li>
+              <li>Medidores de tempo de resposta, erro e memória, no formato que qualquer painel de mercado lê.</li>
+              <li>Dois medidores existem para ficar em <strong>zero</strong>: vazamento entre empresas e falha de gravação da trilha. Qualquer número acima disso é alarme.</li>
+              <li>Registro estrutura o dado e apaga senha, token e documento automaticamente.</li>
+              <li>Registro rotaciona: não enche o disco nem some no reinício.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li>Não há painel montado nem alerta configurado: os números existem, ninguém está olhando.</li>
+              <li>Sem coletor externo — se a máquina sumir, o histórico some com ela.</li>
+              <li>Sem aviso automático quando alguma coisa passa do limite.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Um painel e três alertas: erro acima do normal, vazamento entre empresas e falha de auditoria.</p>
+      </article>
+    </div>
+
+    <!-- ================= OPERAÇÃO ================= -->
+    <div class="grupo">
+      <header>
+        <h3>Operação</h3>
+        <p>O dia a dia de quem usa e de quem mantém.</p>
+      </header>
+
+      <article class="setor" id="uso">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Experiência de uso</h4>
+            <p class="setor-frase">
+              A pessoa que abre isso é a dona da frota entre uma viagem e outra, ou o motorista
+              com uma mão no celular. Precisa ser óbvio.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">85<small>%</small></span>
+            <span class="pill p-bom">Aprovado</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li>Feito para celular primeiro. Nenhuma tela rola para o lado em 375 pixels — conferido tela por tela.</li>
+              <li>Todo alvo de toque com no mínimo 44 pixels: quem usa de pé, na porta da van, acerta.</li>
+              <li><strong>Nenhum botão morto.</strong> Os que só sabiam falhar foram removidos, e a tela explica antes do clique.</li>
+              <li>Nada de "salvo!" sem ter salvado: cada ação é conferida contra o servidor no teste.</li>
+              <li>Tela vazia mostra o que fazer; carregamento mostra o formato do conteúdo; erro explica e oferece tentar de novo.</li>
+              <li>Funciona só com teclado, com foco visível, e tem atalho para pular direto ao conteúdo.</li>
+              <li>Modo claro e escuro, com a escolha lembrada.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li>Busca dispara a cada tecla digitada em vez de esperar a pessoa parar.</li>
+              <li>A aba do navegador mostra sempre o mesmo nome, não a tela em que se está.</li>
+              <li>Sem exportar o resultado financeiro para planilha — pedido comum de quem tem contador.</li>
+              <li>Nota de acessibilidade e desempenho medida por ferramenta padrão ainda não foi tirada.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Exportar o financeiro em planilha e dar nome próprio a cada tela.</p>
+      </article>
+
+      <article class="setor" id="velocidade">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Velocidade</h4>
+            <p class="setor-frase">
+              Quanto tempo cada coisa leva — e o quanto isso piora quando várias pessoas
+              usam ao mesmo tempo.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">70<small>%</small></span>
+            <span class="pill p-ressalva">Com ressalva</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li>O aplicativo pesa 130 KB comprimido, contra um orçamento de 400 KB. Abre rápido em 4G.</li>
+              <li>Toda listagem é paginada; nenhuma tela tenta trazer o banco inteiro.</li>
+              <li>12 índices que faltavam foram criados: sem eles, apagar um registro varria a tabela inteira.</li>
+              <li>Consulta que passar de 30 segundos é cortada, em vez de arrastar o banco junto.</li>
+              <li>Listagem de alunos responde em meio segundo com uso normal.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li>Entrar no sistema leva cerca de <strong>0,9 segundo</strong> — é o custo deliberado de embaralhar a senha com força. Baixar isso seria trocar segurança por número bonito.</li>
+              <li>Com 20 pessoas ao mesmo tempo, a listagem vai de 0,5 para 3 segundos: o mesmo processo embaralha senha e serve consulta.</li>
+              <li>Relatórios são calculados na hora, sem cache.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Tirar o cálculo de senha da fila principal. A solução é separar o trabalho, nunca enfraquecer a senha.</p>
+      </article>
+
+      <article class="setor" id="infra">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Infraestrutura e publicação</h4>
+            <p class="setor-frase">
+              Como o sistema sobe, como se atualiza e como se volta atrás quando
+              a atualização der errado.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">78<small>%</small></span>
+            <span class="pill p-ressalva">Com ressalva</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li>Um comando sobe tudo, já em modo produção, com certificado próprio. O que roda na sua máquina é o que vai para o servidor.</li>
+              <li>O banco tem dois usuários: um que muda a estrutura e outro, o da aplicação, <strong>que não consegue apagar tabela nem se quiser</strong>.</li>
+              <li>Imagens travadas por impressão digital, não por apelido — o mesmo comando não traz coisa diferente amanhã.</li>
+              <li>Servidor de integração roda testes, telas, varredura de segredo e de vulnerabilidade a cada mudança.</li>
+              <li>Verificação depois da publicação confere se o que está no ar é mesmo a versão que você aprovou.</li>
+              <li>Migração que apaga coluna exige aceite escrito ao lado do arquivo.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li>Nenhum servidor real foi inspecionado ainda — firewall, DNS, vizinhos de máquina.</li>
+              <li>Servidor único, sem redundância.</li>
+              <li>A infraestrutura não está descrita em código: subir a segunda igual à primeira é trabalho manual.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Inspecionar o servidor de destino. Sem isso, essa nota tem teto.</p>
+      </article>
+    </div>
+
+    <!-- ================= ALCANCE ================= -->
+    <div class="grupo">
+      <header>
+        <h3>Alcance</h3>
+        <p>Até onde o sistema vai como está — e o que trava o passo seguinte.</p>
+      </header>
+
+      <article class="setor" id="negocio">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Regras do negócio</h4>
+            <p class="setor-frase">
+              Se o que o sistema faz corresponde ao que uma frota escolar realmente precisa,
+              e se as contas fecham.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">65<small>%</small></span>
+            <span class="pill p-ressalva">Com ressalva</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li>Motorista em duas frotas ao mesmo tempo, com diária diferente em cada — a promessa de capa, que não funcionava.</li>
+              <li>Frota com mensalidade atrasada continua lendo tudo, e <strong>ponto e check-in de aluno continuam funcionando</strong>: cobrança não pode deixar criança sem acompanhamento.</li>
+              <li>Fim do período de teste virou aviso, não corte. Cortar acesso é decisão de alguém, registrada com motivo.</li>
+              <li>Resultado financeiro bate com a soma do banco até o centavo, e dinheiro é guardado em centavos inteiros.</li>
+              <li>Ponto com as quatro batidas e regras de turno; fretamento com os quatro estados do fluxo.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li><strong>Não existe o conceito de rota.</strong> O aluno tem endereço, a van tem motorista, mas ninguém liga os dois numa sequência de embarque.</li>
+              <li>Folha de pagamento do motorista não entra no resultado financeiro: o lucro aparece maior do que é.</li>
+              <li>Mensalidade não se repete sozinha — alguém lança mês a mês.</li>
+              <li>Sem exportação contábil.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Criar a rota. Ela destrava a tela do motorista, o acompanhamento do responsável e o cálculo de custo por rota.</p>
+      </article>
+
+      <article class="setor" id="escala">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Escalabilidade</h4>
+            <p class="setor-frase">
+              O sistema aguenta uma frota grande hoje. O que ele não aguenta é ser
+              duplicado para aguentar muitas.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">55<small>%</small></span>
+            <span class="pill p-grave">Trava o próximo passo</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li>Limite de requisições é compartilhado entre servidores — já está pronto para mais de um.</li>
+              <li>Banco dimensionado com folga e com índices completos.</li>
+              <li>Nenhuma tela traz lista inteira: tudo paginado, com teto.</li>
+              <li>Sessão não fica presa na memória de um servidor específico.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li><strong>O mapa ao vivo da van não funciona com dois servidores:</strong> quem estiver no servidor A não recebe a posição publicada no B. Metade dos responsáveis simplesmente não veria a van.</li>
+              <li><strong>Fotos ficam no disco da máquina.</strong> Com dois servidores, metade das fotos "some" de forma intermitente.</li>
+              <li>Saturação já medida: 20 pessoas ao mesmo tempo levam a listagem de 0,5 para 3 segundos.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Estes dois itens são <em>pré-requisito</em> do segundo servidor, não melhoria depois dele. Resolver antes de escalar, nunca depois.</p>
+      </article>
+
+      <article class="setor" id="integracoes">
+        <div class="setor-cabeca">
+          <div>
+            <h4>Integrações externas</h4>
+            <p class="setor-frase">
+              Tudo que precisa <em>sair</em> do sistema: e-mail, cobrança, WhatsApp.
+              É o item mais fraco, e por um motivo simples — nada disso está contratado.
+            </p>
+          </div>
+          <div class="setor-nota">
+            <span class="pct">25<small>%</small></span>
+            <span class="pill p-grave">Trava o próximo passo</span>
+          </div>
+        </div>
+        <div class="colunas">
+          <section class="tem">
+            <h5>O que já está de pé</h5>
+            <ul>
+              <li><strong>Nenhuma tela mente sobre isso.</strong> Onde não há provedor, o sistema recusa e explica, em vez de dizer "enviado".</li>
+              <li>O convite de equipe devolve o link para quem convidou copiar e mandar por WhatsApp — funciona hoje, sem provedor.</li>
+              <li>"Esqueci a senha" diz a verdade e indica o caminho real, com a mesma resposta para e-mail cadastrado ou não.</li>
+              <li>Cobrança e publicação recusam com aviso claro em vez de marcar como feito.</li>
+              <li>Estrutura de cobrança pronta: falta a credencial, não o código.</li>
+            </ul>
+          </section>
+          <section class="falta">
+            <h5>O que falta</h5>
+            <ul>
+              <li>Nenhum provedor de e-mail contratado. Convite e recuperação de senha dependem de entrega manual.</li>
+              <li>Cobrança automática desligada — nunca conversou com o gateway de verdade.</li>
+              <li>WhatsApp é impossível hoje: <strong>não existe campo de telefone no cadastro</strong>. Não é fiação faltando, é dado faltando.</li>
+            </ul>
+          </section>
+        </div>
+        <p class="destrava"><b>O que sobe essa nota</b> Uma conta de envio de e-mail resolve metade. É decisão comercial, não técnica.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ================= MUDANÇAS ================= -->
+  <section class="bloco">
+    <h2>O que mudou nesta rodada</h2>
+    <p class="intro">
+      Uma auditoria independente rodou do zero — 171 verificações automáticas e 53 roteiros
+      manuais. Estes foram os achados que valeram a rodada.
+    </p>
+
+    <div class="mudancas">
+      <div class="mudanca">
+        <span class="marca m-critico">Era grave</span>
+        <h4>Cache lento derrubava o sistema inteiro</h4>
+        <p>
+          O código prometia continuar funcionando com o cache fora — e a promessa só valia para
+          cache <em>caído</em>. Com ele <em>lento</em>, cada requisição ficava pendurada esperando
+          para sempre. Medido congelando o serviço: em 3 de 3 tentativas nada respondeu em 20
+          segundos. Corrigido com teto de tempo, e duas travas impedem a volta.
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-critico">Era grave</span>
+        <h4>Um pagamento podia sumir em silêncio</h4>
+        <p>
+          O sistema marcava o aviso do banco como processado <em>antes</em> de dar baixa na
+          mensalidade. Uma queda entre as duas coisas deixava o aviso marcado e a fatura em aberto —
+          e a nova tentativa do banco respondia "já processei". O dinheiro entrava no gateway e o
+          responsável seguia sendo cobrado, sem ninguém receber erro.
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-critico">Era grave</span>
+        <h4>Chave de acesso abria o console sem segundo fator</h4>
+        <p>
+          A trava conferia se a pessoa <em>tinha</em> verificação em duas etapas cadastrada, não se
+          ela <em>usou</em>. Quem entrasse por chave física passava direto — e esse console suspende
+          qualquer frota cliente. Agora a sessão registra como foi autenticada.
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-corrigido">Corrigido</span>
+        <h4>Conta suspensa parecia normal até apertar Salvar</h4>
+        <p>
+          O aviso de "somente leitura" só aparecia depois de uma tentativa de gravar falhar. A pessoa
+          preenchia o cadastro inteiro de um aluno e descobria no fim, perdendo o que digitou.
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-corrigido">Corrigido</span>
+        <h4>A tela do ponto mandava bater entrada quando o servidor ia recusar</h4>
+        <p>
+          O caso mais comum de todos — o motorista que esqueceu de bater a saída ontem — via o botão
+          liberado e tomava erro. No começo do expediente, com a van na porta da escola.
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-corrigido">Corrigido</span>
+        <h4>O convite de equipe não chegava a ninguém</h4>
+        <p>
+          Sem provedor de e-mail, o link só era mostrado em ambiente de desenvolvimento. Em produção
+          o convite virava uma linha no banco que expirava em 72 horas sem servir para nada.
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-novo">Novo</span>
+        <h4>Console da plataforma, com segundo fator obrigatório</h4>
+        <p>
+          Antes não havia lugar nenhum para ver as frotas clientes nem para decidir sobre a
+          assinatura de uma delas. Agora existe, exige verificação em duas etapas e registra tanto
+          quem olhou quanto quem mudou.
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-novo">Novo</span>
+        <h4>Registro de tratamento e avaliação de impacto (LGPD)</h4>
+        <p>
+          Documento exigido para dado de criança em escala com localização. Escrito apontando para
+          código conferível — e a pendência que ele declarava foi implementada junto, não deixada
+          como promessa.
+        </p>
+      </div>
+      <div class="mudanca">
+        <span class="marca m-novo">Novo</span>
+        <h4>Frota inadimplente nos dados de demonstração</h4>
+        <p>
+          O modo somente-leitura é o caminho mais delicado do produto e nenhuma empresa de exemplo
+          estava suspensa — então ele nunca tinha sido testado uma vez sequer. Agora quatro cenários
+          o exercitam.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RISCOS ================= -->
+  <section class="bloco">
+    <h2>Riscos assumidos, com prazo</h2>
+    <p class="intro">
+      Estes não são esquecimentos: são decisões escritas. A regra do projeto é que risco sem data
+      de revisão não é risco aceito — é risco esquecido. Por isso todos têm data, e o servidor de
+      integração reprova a entrega se algum prazo vencer.
+    </p>
+
+    <div class="rolagem">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Risco</th>
+            <th scope="col">Por que fica assim</th>
+            <th scope="col">Revisar até</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Mapa ao vivo e fotos não sobrevivem ao segundo servidor</strong></td>
+            <td>Resolver de verdade exige serviço novo para um problema que ainda não existe com um servidor só.<small>Exposição hoje: nenhuma. No dia da duplicação: total, e de forma intermitente e difícil de diagnosticar.</small></td>
+            <td class="prazo">10/03/2027<small>ou no dia em que a segunda máquina for cogitada</small></td>
+          </tr>
+          <tr>
+            <td><strong>Nada sai do sistema: e-mail, cobrança, WhatsApp</strong></td>
+            <td>Depende de contratar provedor e de decisão comercial.<small>Nenhuma tela mente sobre isso — é funcionalidade ausente, declarada.</small></td>
+            <td class="prazo">10/12/2026</td>
+          </tr>
+          <tr>
+            <td><strong>Datas guardadas sem fuso horário</strong></td>
+            <td>Corrigir é migração que reescreve todas as tabelas — proibido no meio de um ciclo de blindagem.<small>Aparece no primeiro cliente fora de São Paulo, e aparece como ponto batido na hora errada.</small></td>
+            <td class="prazo">10/03/2027</td>
+          </tr>
+          <tr>
+            <td><strong>Entrar leva 0,9 segundo</strong></td>
+            <td>É o custo proposital de embaralhar a senha com força.<small>Uma frota faz dezenas de logins por dia, não milhares. Incomoda; não machuca.</small></td>
+            <td class="prazo">10/03/2027</td>
+          </tr>
+          <tr>
+            <td><strong>Sem disjuntor para serviço externo</strong></td>
+            <td>As duas integrações estão desligadas, e defesa que nunca executa é complexidade que ninguém confere.<small>Entra no mesmo pacote que ligar a cobrança — não depois.</small></td>
+            <td class="prazo">10/12/2026<small>ou antes de ligar a cobrança</small></td>
+          </tr>
+          <tr>
+            <td><strong>Exercício de falha não é rotina</strong></td>
+            <td>Institucionalizar é trabalho de operação contínua.<small>Os dois já feitos acharam o defeito mais grave do ciclo — é o argumento a favor, não contra.</small></td>
+            <td class="prazo">10/12/2026</td>
+          </tr>
+          <tr>
+            <td><strong>Dependência com falha conhecida, travada por substituição</strong></td>
+            <td>A correção definitiva exige migrar uma biblioteca central de versão.<small>A trava atual funciona e está conferida; ela é remendo, não solução.</small></td>
+            <td class="prazo">09/12/2026</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= PLANEJAMENTO ================= -->
+  <section class="bloco">
+    <h2>O caminho daqui para frente</h2>
+    <p class="intro">
+      Três horizontes, em ordem. Cada um só faz sentido depois do anterior — e a ordem
+      não é preferência, é dependência.
+    </p>
+
+    <div class="horizontes">
+      <div class="horizonte">
+        <span class="quando">Antes de colocar o primeiro cliente</span>
+        <h3>Sair do laboratório</h3>
+        <ul>
+          <li>Inspecionar o servidor de destino: firewall, portas, certificado na borda, DNS, vizinhos de máquina. É o único item que hoje limita a nota de segurança e a de infraestrutura ao mesmo tempo.</li>
+          <li>Contratar envio de e-mail. Resolve convite e recuperação de senha de uma vez.</li>
+          <li>Montar um painel e três alertas: erro acima do normal, vazamento entre empresas, falha de auditoria.</li>
+          <li>Nomear o encarregado de dados e publicar o canal do titular — exigência de lei.</li>
+        </ul>
+      </div>
+
+      <div class="horizonte">
+        <span class="quando">Antes de cobrar pelo sistema</span>
+        <h3>Fechar o ciclo do dinheiro</h3>
+        <ul>
+          <li>Ligar a cobrança contra o ambiente de teste do gateway, exercitando criação, aviso assinado e conciliação — com o disjuntor no mesmo pacote.</li>
+          <li>Fazer a mensalidade se repetir sozinha, em vez de alguém lançar mês a mês.</li>
+          <li>Levar a folha do motorista para o resultado financeiro, senão o lucro segue aparecendo maior do que é.</li>
+          <li>Exportar o financeiro em planilha, para o contador do cliente.</li>
+        </ul>
+      </div>
+
+      <div class="horizonte">
+        <span class="quando">Antes de atender muitas frotas</span>
+        <h3>Aguentar o crescimento</h3>
+        <ul>
+          <li>Mapa ao vivo funcionando entre servidores e fotos fora do disco local. <strong>Pré-requisito do segundo servidor</strong>, não melhoria depois dele.</li>
+          <li>Tirar o cálculo de senha da fila principal, que é o que hoje faz a listagem cair de 0,5 para 3 segundos com 20 pessoas.</li>
+          <li>Criar o conceito de rota — destrava a tela do motorista, o acompanhamento do responsável e o custo por rota.</li>
+          <li>Migrar as datas para guardar fuso horário, em janela declarada.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RODAPÉ ================= -->
+  <footer class="rodape">
+    <p>
+      Todas as notas saem de execução medida em 10 de setembro de 2026, sobre a versão
+      <code>805fc2a</code>. O detalhamento técnico de cada afirmação está no relatório de validação
+      do repositório, e os riscos com prazo no arquivo de riscos aceitos.
+    </p>
+    <p>
+      <strong>Nada aqui foi arredondado para cima.</strong><br>
+      O que não foi medido perdeu ponto, em vez de ganhar o benefício da dúvida.
+    </p>
+  </footer>
+
+</div>
