@@ -1,0 +1,131 @@
+version: 2
+
+# Atualizacao de dependencia em tres ecossistemas.
+#
+# Mais da metade dos incidentes em Node hoje entra por dependencia, e o pino
+# por SHA das actions (ver ci.yml) so protege enquanto alguem renova o pino —
+# um commit fixado num release com CVE fica fixado nele para sempre.
+#
+# O agrupamento existe por um motivo operacional, nao estetico: quinze PRs de
+# patch por semana treinam a equipe a clicar "merge" sem ler, e ai o PR que
+# importa passa junto. Rotina vem agrupada e semanal; SEGURANCA vem separada e
+# sozinha, porque e a que precisa ser lida.
+#
+# Nota sobre atualizacao de seguranca: o Dependabot abre PR de security update
+# assim que o advisory sai, independentemente do `schedule` e SEM aplicar o
+# agrupamento de rotina — desde que o alerta esteja ligado em
+# Settings > Code security. Os grupos abaixo, por isso, cobrem so o bump de
+# rotina; nao ha como (nem por que) agrupar o de seguranca.
+
+updates:
+  # --- npm: API ---
+  - package-ecosystem: npm
+    directory: /api
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    labels: ['dependencias', 'api']
+    commit-message:
+      prefix: chore
+      prefix-development: chore
+      include: scope
+    groups:
+      api-producao:
+        dependency-type: production
+        update-types: ['minor', 'patch']
+      api-desenvolvimento:
+        dependency-type: development
+        update-types: ['minor', 'patch']
+    ignore:
+      # Major de framework nao e bump de rotina: e migracao com plano proprio.
+      # Deixar o Dependabot abrir o PR so produz um PR vermelho que fica aberto
+      # meses e ensina a equipe a conviver com CI vermelho.
+      - dependency-name: express
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@prisma/client'
+        update-types: ['version-update:semver-major']
+      - dependency-name: prisma
+        update-types: ['version-update:semver-major']
+      - dependency-name: zod
+        update-types: ['version-update:semver-major']
+
+  # --- npm: Web ---
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    labels: ['dependencias', 'web']
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      web-producao:
+        dependency-type: production
+        update-types: ['minor', 'patch']
+      web-desenvolvimento:
+        dependency-type: development
+        update-types: ['minor', 'patch']
+    ignore:
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+      - dependency-name: react-dom
+        update-types: ['version-update:semver-major']
+      - dependency-name: vite
+        update-types: ['version-update:semver-major']
+
+  # --- Docker: as imagens base ---
+  # `node:22-alpine` e `nginx:*` carregam openssl, busybox e zlib, que o
+  # npm audit nao enxerga. O trivy no CI ACUSA o CVE; este bloco e o que
+  # oferece a correcao — acusar sem oferecer conserto vira alarme cronico.
+  - package-ecosystem: docker
+    directories:
+      - /api
+      - /web
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 3
+    labels: ['dependencias', 'docker']
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      imagens-base:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+    ignore:
+      # Trocar a linha do Node (22 -> 24) e decisao de plataforma, com janela
+      # e teste proprios. Patch da mesma linha entra sozinho.
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
+
+  # --- GitHub Actions ---
+  # Sem isto o pino por SHA congela tambem os defeitos: o Dependabot entende o
+  # formato `sha # tag` e reescreve os dois lados no PR.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 3
+    labels: ['dependencias', 'ci']
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns: ['*']
+        update-types: ['minor', 'patch']

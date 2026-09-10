@@ -1,0 +1,394 @@
+# Relatório de validação — VanPro
+
+Escopo: reescrita da v2 para produção. Branch `harden/production-ready`,
+commit `f8c2421`. Última medição: 2026-09-10.
+
+**Regra que governa este documento:** só entra como verificado o que foi
+**executado e medido**. O que não foi exercitado aparece como `NÃO VERIFICADO`,
+nunca como aprovado — ausência de sinal não é aprovação.
+
+**Veredito:** `CONDITIONAL GO` (§6) — 0 gates bloqueados, 0 crítico novo.
+388/388 na API · 97/97 no E2E · 19/19 guardas · cobertura acima dos quatro pisos.
+
+Documentos irmãos: a lógica de negócio revista está em
+[`REVISAO-DE-DOMINIO.md`](REVISAO-DE-DOMINIO.md) (D-01 a D-11), os riscos
+assinados com prazo em [`.accept-risk.md`](../.accept-risk.md) (R-001 a R-006), o
+inventário de cada botão em [`../web/e2e/INVENTARIO.md`](../web/e2e/INVENTARIO.md)
+e o registro LGPD em [`LGPD-ROPA-E-DPIA.md`](LGPD-ROPA-E-DPIA.md).
+
+---
+
+## 1. Ponto de partida
+
+A auditoria inicial encontrou 5 defeitos críticos e 9 altos. Os cinco críticos:
+
+| # | Defeito | Consequência |
+|---|---|---|
+| 1 | `api/` sem `@prisma/client`, sem `prisma`, sem scripts `dev`/`build`/`start` | **a API não subia**; CI, Dockerfile e `iniciar.bat` quebravam |
+| 2 | `students` montado sem auth na linha 99 e com auth na 104 — o Express casa o primeiro | **CRUD de crianças público**: nome, escola, endereço, foto |
+| 3 | Verificação de assinatura do webhook **comentada** | qualquer um quitava fatura alheia |
+| 4 | `student`/`vehicle`/`financial`/`timecard` sem filtro de empresa | **o DRE somava o faturamento de todos os tenants** |
+| 5 | `JWT_SECRET \|\| 'super_secret_jwt_vanpro_key_123'` em 4 arquivos | deploy sem env rodava com segredo público no GitHub |
+
+O `blindar` na versão original: **exit 2 (NO-GO)**, 180 achados, 26 checks
+reprovados, cobertura de checks 69%.
+
+---
+
+## 2. O que existe hoje
+
+| Área | Arquivos | Linhas |
+|---|---|---|
+| `api/src` | 49 | 10.319 |
+| `api/tests` | 22 | 5.870 |
+| `web/src` | 48 | 11.616 |
+| `web/e2e` | 14 | 4.733 |
+| `infra` | 15 | 2.407 |
+| `docs` | 7 | 1.654 |
+
+Removidos: `backend/` e `frontend/` (segunda stack morta), `data_storage.json`,
+`teste-visual*.html`, `translate.js`, `sec.html`.
+
+---
+
+## 3. Verificado por execução
+
+### 3.1 Suíte de testes — `388 / 388`
+
+`npm run test:coverage` contra **PostgreSQL real** (`vanpro_test`), 20 arquivos.
+Sem mock de banco: fixture testa a unidade, só o banco testa o sistema.
+
+| Métrica | Valor | Piso do build |
+|---|---|---|
+| Linhas | **79,26 %** | 70 % |
+| Statements | **76,49 %** | 70 % |
+| Branches | **60,75 %** | 60 % |
+| Funções | **79,04 %** | 70 % |
+
+Medido **duas vezes consecutivas**, sobre a árvore limpa (`git status` vazio) e
+sem nada mais rodando: os dois números são idênticos e o `vitest` devolveu
+exit 0 nas duas. A reprodutibilidade está aqui de propósito — foi o ponto que um
+agente de auditoria contestou, e a resposta a uma contestação de evidência é
+outra medição, não um argumento.
+
+O piso **falha o build** — e falhou de verdade duas vezes neste ciclo:
+
+1. A medição saiu em 59,27 % de branches e o `vitest` devolveu exit 1. O que
+   escondeu isso foi um descuido próprio: `npx vitest run --coverage | grep ...`
+   devolve o exit code do **`grep`**, e a primeira leitura foi "passou". A
+   correção não foi baixar o piso; foram três suítes novas cobrindo o que estava
+   descoberto.
+2. Duas execuções simultâneas contra o mesmo banco produziram 96 falhas — chave
+   estrangeira violada em fixture, 404 em rota que existe, deadlock no Postgres —
+   todas parecendo defeito de produto. Hoje `npm test` **recusa iniciar** quando
+   outra suíte detém a trava, dizendo o que esperar.
+
+Cobre: isolamento entre empresas (camada de dados e HTTP), auth completo
+(lockout, expiração de senha, 2FA, códigos de recuperação, rotação de refresh
+com detecção de reuso), matriz RBAC por papel, CSRF, Sentinela, webhooks com
+idempotência, LGPD com verificação da cadeia de auditoria — inclusive sob
+escrita concorrente —, as três rotinas agendadas, o console da plataforma, o
+ciclo de campanhas e publicações, upload com verificação de assinatura de
+conteúdo, as sondas de saúde, o handshake do WebSocket e o schema de ambiente.
+
+**As três suítes acrescentadas nesta rodada, e por que cada uma existe:**
+
+| Suíte | O que estava descoberto |
+|---|---|
+| `realtime.test.ts` (16) | O arquivo do WebSocket tinha **0 %**. A correção mais sensível do produto — o cliente não escolhe mais a sala, e por isso ninguém acompanha a van de outra frota — vivia sem prova nenhuma. |
+| `env-schema.test.ts` (17) | As regras que impedem subir inseguro (segredo de exemplo, banco em claro, TLS sem âncora de confiança, gateway sem token de webhook) só eram exercitáveis subindo o processo com o ambiente errado. Nenhum teste fazia isso. |
+| `ai-uploads-health.test.ts` (19) | Campanhas 18 %, uploads 12 %, sondas 23 %. A máquina de estados do que sai no nome da escola, o único caminho de escrita que grava foto de criança, e o que o orquestrador consulta para derrubar o contêiner. |
+
+### 3.2 Isolamento entre empresas — provado ao vivo
+
+Duas empresas no seed. Pela API, autenticado:
+
+```
+Helena (Rota Segura)  → GET /students        → 2 alunos (os dela)
+Roberto (TransVan)    → GET /students        → 5 alunos (os dele)
+Helena → GET /students/<id de aluno da TransVan>  → 404   (não 403: 403 confirmaria a existência)
+DRE Helena  → R$ 0,00        DRE Roberto → R$ 3.920,00
+```
+
+O DRE conferido centavo a centavo contra `SELECT sum("amountCents")` no Postgres:
+`392000` e `573050` centavos — bate exatamente com `R$ 3.920,00` e `R$ 5.730,50`.
+
+### 3.3 Matriz de autorização — medida por HTTP
+
+| Papel | `/financial/dre` | `/company/team` | `POST /students` | `POST /vehicles` | `/privacy/audit-trail` |
+|---|---|---|---|---|---|
+| OWNER | 200 | 200 | 201 | 201 | 200 |
+| MANAGER (só `canManageFinance`) | 200 | 200 | **403** | **403** | **403** |
+| DRIVER | **403** | **403** | **403** | **403** | **403** |
+| ASSISTANT | **403** | **403** | **403** | **403** | **403** |
+| PARENT | **403** | **403** | **403** | **403** | **403** |
+
+Auditoria rota a rota (`infra/scripts/audit-route-guards.mjs`):
+**68 rotas com `requireRole`**, 6 públicas declaradas com marcador escrito,
+**0 sem guarda**.
+
+### 3.4 Criptografia em repouso — conferida no disco
+
+```
+SELECT left(name,60) FROM "Student";
+ v1.aesgcm256.5073e902.d7khz9nqeJ7poosH.lwTPmZW2Yo2_TI1miF5rI
+```
+
+### 3.5 Comportamento de borda
+
+| Verificação | Resultado |
+|---|---|
+| `/students` sem sessão | 401 (era CRUD público) |
+| `POST` autenticado sem `x-csrf-token` | 403 `CSRF_TOKEN_MISSING` |
+| Payload com `<script>` | 400 `REQUEST_REJECTED` |
+| Nome com apóstrofo (`Teste D'Avila`) | 201 — aceito |
+| Webhook sem token | 401 |
+| Webhook com payload real do Asaas (980 bytes) | chega à verificação HMAC |
+| `POST /invoices` sem `ASAAS_API_KEY` | 503 `FEATURE_DISABLED`, zero linhas gravadas |
+| Origem `https://evil.example` | 403 `CORS_ORIGIN_NOT_ALLOWED` |
+| SIGTERM no contêiner | encerramento gracioso em 89 ms, exit 0 |
+
+Cabeçalhos conferidos na resposta: CSP sem `unsafe-inline`, `X-Frame-Options:
+DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy` negando
+câmera/mic/geo/pagamento, `x-request-id`, sem `X-Powered-By`.
+
+### 3.6 Interface
+
+As 8 telas de OWNER, e as de DRIVER/ASSISTANT/PARENT/SUPER_ADMIN, renderizadas
+no navegador contra a API real — não contra mock. Mobile 375 px: **zero
+overflow horizontal**, `lang="pt-BR"`, alvos de toque ≥ 44 px, skip link.
+Bundle **130 KB gzip** (orçamento: 400 KB).
+
+**E2E — `97 / 97`, zero pulados.** `npx playwright test` com Chromium contra a
+pilha em modo produção (nginx + TLS + API + PostgreSQL + Redis), 11 arquivos,
+sem stub de rede: cada cenário clica e depois prova o efeito — a requisição
+saiu, o estado mudou, o dado no banco mudou.
+
+Os `test.skip` desapareceram, e essa é a mudança que mais importa nesta seção.
+Havia sete, todos honestos no texto (*"cenário NÃO verificado nesta rodada"*) e
+todos com o mesmo efeito prático: a suíte ficava verde sem nunca ter exercitado
+cadastro de empresa, recuperação de senha, upload, paginação, encerramento de
+dispositivo e conta suspensa. Cada um foi resolvido criando o cenário em vez de
+declarar a ausência:
+
+| Pulava porque | Agora |
+|---|---|
+| cota pública de 5/hora esgotada pela própria suíte | `e2e/limites.ts` zera **a contagem que a suíte gerou** antes do cenário. O limite de produção continua 5/hora, e quem prova que ele dispara é um teste dedicado que não usa esse helper. |
+| cota geral (1000/15 min) esgotada no meio da rodada | mesma coisa, em intervalo, durante a execução. Sem isso, testes de tela falhavam com 429 — vermelho que não diz nada sobre o produto e some ao rodar o spec sozinho. |
+| "a frota cabe em uma página" | o teste **cria** 13 veículos, navega ida e volta, confere que a página 2 não repete a 1 e desfaz tudo no `finally`. |
+| "só existe a sessão atual" | o teste **abre** um segundo contexto autenticado e encerra aquele dispositivo. |
+| "nenhuma empresa do seed está suspensa" | o seed passou a ter uma quarta empresa em `SUSPENDED` (D-10). |
+
+
+### 3.7 Guardas de regressão — 19 / 19
+
+`bash infra/scripts/guards.sh`. Cada guarda corresponde a um defeito que
+existiu neste repositório: segredo com valor padrão, identificador simulado,
+`console.*`, `as any`, token no corpo da resposta, filtro de tenant escrito à
+mão, rota sem papel, webhook sem assinatura, dinheiro em float, SQLite,
+contêiner como root, upload estático, prefixo montado duas vezes, SQL cru sem
+justificativa e router montado em mais de um lugar.
+
+O total é **contado**, não digitado: um guarda novo entra na conta sozinho.
+
+### 3.8 Dependências
+
+`npm audit`: **0 vulnerabilidades** na API; web sem `high`/`critical`.
+Corrigidos no caminho: `@simplewebauthn/server` 11 → 13 (advisory de verificação
+de registro), `react-router` 6 → 7 (injeção de construtor e open redirect),
+`node-cron` 3 → 4, `vitest` → 4, `vite` → 7, e `deepmerge-ts` via `override`.
+
+---
+
+## 4. Defeitos encontrados **durante** a construção
+
+Todos por execução real, não por leitura. Cada um estava em código que eu
+mesmo tinha escrito e que "parecia certo".
+
+| # | Defeito | Como apareceu | Correção |
+|---|---|---|---|
+| 1 | `mergeWhere` embrulhava o `where` de `update`/`delete` em `AND`; `WhereUniqueInput` exige o campo único na raiz | **todo `PATCH`/`DELETE` devolvia 500** — 27 rotas. O produto criava e lia, não alterava nada | merge plano para operações de `where` único |
+| 2 | Sentinela escaneava o `Buffer` cru do webhook; `Object.keys(buffer)` dá um índice por byte, e o teto de 300 chaves reprovava qualquer payload > ~300 B | **nenhuma cobrança real seria baixada** | corpo binário tratado como opaco, com teto próprio de bytes |
+| 3 | Rate limit montava o store do Redis no import, antes da conexão; o construtor dispara um comando | **a API não subia** — o oposto do "fail-open" que o comentário prometia | store criado sob demanda, só com Redis pronto |
+| 4 | `PrismaPromise` é preguiçoso: `runUnscoped('x', () => prisma.x.create())` executava fora da janela do `AsyncLocalStorage` | 9 testes de tenant falhando | o contexto amarra o resultado chamando `.then` de forma síncrona |
+| 5 | Variável opcional vazia (`${VAR:-}` do compose) contava como preenchida | contêiner abortava por `ASAAS_API_KEY` inválida | string vazia normalizada para ausente |
+| 6 | CORS recusava o próprio proxy, e a recusa vazava como **500** | login não funcionava pelo nginx | lista de origens + `CorsOriginError` tratado com 403 |
+| 7 | `tmpfs` do compose montava por cima do `chown` da imagem | nginx morria sem permissão de escrita | `mode=1777` explícito |
+| 8 | `swagger-jsdoc` sem anotação nenhuma nos controllers | **documentação subia com 0 rotas** — casca vazia que parece documentação | spec derivada da tabela de montagem: 95 rotas, não pode divergir do código |
+| 9 | Seed casava registro por campo de exibição (escola + série); corrigir a acentuação quebrou o casamento | **seed duplicou alunos e mensalidades** | `upsert` por UUIDv5 sobre chave estável — rodar dez vezes = rodar uma (verificado) |
+| 10 | Toda a interface sem acentuação | "Gestao", "Configuracoes", "Combustivel" | 70 arquivos corrigidos, incluindo os seletores de E2E que dependiam do texto antigo |
+| 11 | `situação ACTIVE` cru na tela | valor de banco vazando como texto | mapa de rótulos para 15 enums |
+| 12 | Lockfile gerado no Windows não fechava com `npm ci` no Linux; o npm 10.9.8 da imagem base quebra com `overrides` | **build do contêiner falhava** | npm fixado em `11.6.2` no Dockerfile, lock regenerado no Linux |
+
+| 13 | A trava da cadeia de auditoria usava `$queryRaw` em `pg_advisory_xact_lock`, que devolve `void` → P2010. E `audit()` engole exceção de propósito | **a trilha inteira parou de gravar em silêncio** — o erro exato que aquele arquivo existe para impedir | `$executeRaw`, e uma métrica `vanpro_falhas_auditoria_total` para a falha nunca mais ser muda |
+| 14 | Página de veículos pedia 20 por página; o plano PRO limita a frota a 20 | o botão "Próxima" era **inalcançável em qualquer plano** — controle morto com aparência de recurso | página de 12 (D-09) |
+| 15 | A faixa "Somente leitura" só acendia depois de uma escrita voltar 402 | quem entrava numa conta suspensa preenchia um cadastro inteiro e descobria ao apertar Salvar | estado derivado de `/auth/me` (D-10) |
+| 16 | A tela do ponto procurava o turno aberto dentro dos 10 últimos cartões | motorista que esqueceu de bater a saída ontem via "Bater entrada" liberado e tomava 409 | o turno aberto é **perguntado** ao servidor (D-11) |
+| 17 | `npx vitest run --coverage \| grep ...` devolve o exit code do `grep` | li "exit 0" e quase registrei como aprovado um piso de cobertura que estava **falhando** | medição com o exit code do próprio `vitest`, e três suítes novas para voltar acima do piso |
+
+| 18 | `commandTimeout` ausente no cliente de cache | **Redis lento derrubava a API inteira** — o oposto do que o comentário do próprio arquivo prometia | teto por comando, ping da sonda com teto próprio, e a sonda de VIDA movida para a frente do rate limit. Guardas 18 e 19 |
+| 19 | Marca de idempotência do webhook commitava antes do efeito, fora de transação | queda no meio tornava a baixa **irrecuperável**: dinheiro no gateway e o responsável seguindo cobrado | marca e efeito na mesma transação; trilha escrita depois do commit |
+| 20 | Guarda do console conferia a bandeira `isTwoFactorEnabled`, não o fator apresentado | **um toque em passkey abria o console que suspende qualquer frota** | a sessão registra COMO foi autenticada, e o método atravessa a rotação do refresh |
+| 21 | Seed sem guarda de ambiente | `npm run prisma:seed` na janela errada entregava o console a quem leu o README | recusa com `APP_ENV=production`, salvo declaração explícita |
+| 22 | `POST /ai/posts/:id/publish` marcava PUBLISHED sem chamar provedor nenhum | painel dizia "veiculada" sobre mensagem que ninguém enviou | recusa honesta; e o schema não tem campo de telefone, o que é a causa real |
+| 23 | Convite de equipe só devolvia o link em `APP_ENV=local` | **em produção ninguém obtinha o token**: o vínculo expirava em 72h sem servir para nada | link volta para quem o emitiu, em campo copiável |
+| 24 | `/auth/forgot-password` prometia "enviaremos as instruções" | não há provedor de e-mail: a pessoa esperava mensagem que nunca chegaria | a mensagem diz a verdade — e continua idêntica para e-mail cadastrado ou não |
+| 25 | Duas execuções da suíte contra o mesmo banco | 96 falhas parecendo defeito de produto; horas de investigação | trava consultiva + `npm test` que recusa iniciar quando outra suíte está rodando |
+| 26 | TOTP sem tolerância de janela | quem digitava faltando dois segundos recebia "código inválido" tendo feito tudo certo | uma janela para trás, nenhuma para frente (RFC 6238 §5.2) |
+
+Erro meu que vale registro: escrevi em `.accept-risk.md` que `prisma` era só
+`devDependency` e portanto a CVE não ia para a imagem. Estava errado — na linha
+6 ela é dependência de **runtime** do `@prisma/client`, e está no contêiner
+(66,9 MB). O gate de produção falhava de verdade. Corrigido com `override`, e o
+documento agora registra a leitura errada em vez de escondê-la.
+
+---
+
+## 4-B. Auditoria independente — `blindar` 0.83.2, rodada do zero
+
+Estado anterior apagado (`rm -rf .blindar`), 171 agentes determinísticos mais os
+**53 playbooks** executados em subagentes paralelos.
+
+### O que a camada determinística disse, e o que ela era
+
+Primeira saída: **exit 2 (NO-GO), 26 crit e 48 high**. Cada crítico foi conferido
+na fonte, um por um. **Nenhum sobreviveu** — e a frase só vale porque cada
+contraprova está escrita em `.accept-risk.md` (R-005), com o comando que a
+reproduz:
+
+| O que o scanner viu | O que era |
+|---|---|
+| 16 segredos e 3 chaves privadas (gitleaks, trivy) | `.env`, `api/.env.test`, `infra/certs/*.key` — **ignorados pelo git** (`git check-ignore` confirma) e gerados na máquina. O scanner varre a árvore de trabalho, não o histórico. |
+| "Generic API Key" em `ci.yml:53` | o **SHA de 40 caracteres** que fixa `actions/setup-node`. Remover a fixação para calar o detector seria trocar segurança por silêncio. |
+| 6 achados do semgrep | artefatos de cobertura (removidos do disco) e o `DUMMY_HASH` — constante deliberada para gastar o mesmo tempo quando o e-mail não existe. Um hash bcrypt não abre nada; removê-lo reintroduziria o oráculo de tempo. |
+| "uso de MD5" | o comentário em `pg_hba.conf:23` que explica **por que** o banco usa `scram-sha-256` **e não** md5. |
+| "botão sem handler real" | o comentário em `e2e/helpers.ts:433` que explica que um teste ingênuo aprovaria um `onClick={() => {}}`. |
+| "handler financeiro sem audit log" | `webhooks.controller.ts`, que tem **três** chamadas a `audit()`. |
+| "56 endpoints sem guard" | sem `file`, sem `line`. Contraprova: `node infra/scripts/audit-route-guards.mjs` → *69 com guarda, 8 públicos declarados, **0 sem***. |
+
+As três últimas linhas são a mesma armadilha: **o comentário que descreve o
+defeito lido como o defeito**. Custa registrar porque ela pegou também duas
+guardas que eu mesmo escrevi neste ciclo — a de `commandTimeout` e a da sonda de
+vida passavam por causa do próprio comentário que as justifica, até serem
+provadas nos dois sentidos.
+
+### O que os playbooks acharam — e isso valeu a rodada
+
+Cinco defeitos reais, nenhum deles visível para varredura estática:
+
+| # | Defeito | Como apareceu |
+|---|---|---|
+| B-1 | **Cache lento derrubava a API inteira.** `commandTimeout` ausente: com Redis *caído* a recusa de conexão dispara `error` na hora e a degradação é graciosa; com Redis **lento**, a promessa nunca resolve e a requisição HTTP morre esperando | experimento de caos: `docker pause vanpro-redis` → `/health/ready` e `/students` sem resposta em **3 de 3** tentativas com 20s, enquanto a página estática seguia em 200 |
+| B-2 | **O webhook podia perder um pagamento em silêncio.** Marca de idempotência commitava antes do efeito, fora de transação: queda entre as duas deixava o evento marcado e a fatura em aberto, e a retentativa respondia DUPLICADO para sempre | leitura do fluxo por um playbook de arquitetura de eventos |
+| B-3 | **Passkey abria o console da plataforma sem segundo fator.** O guarda conferia `isTwoFactorEnabled` — a bandeira do *cadastro* — e ela continua verdadeira para quem entra por passkey, que com `requireUserVerification: false` prova só posse | achado **na correção anterior**, por remedição |
+| B-4 | **O seed não recusava produção** e sobrescreveria o segredo TOTP do administrador por um publicado no repositório | playbook de backoffice |
+| B-5 | **Publicação dizia "veiculada" sem enviar nada** — e o schema não tem sequer campo de telefone | playbook de arquitetura |
+
+O que mudou por causa deles está nos commits `da819b0`, `0330e89`, `5e9f2e4`,
+`cd0db41` e `f8c2421`.
+
+### Veredito por gate
+
+**CONDITIONAL GO · 0 BLOCKED · 0 crítico novo.**
+
+| Gate | Estado |
+|---|---|
+| `DATABASE` · `OBSERVABILITY` · `BACKUP_RECOVERY` | **PASS** |
+| `SECURITY` · `ARCHITECTURE` · `RUNTIME` · `RESILIENCE` · `PRIVACY` · `QUALITY` · `DEPLOYMENT` · `DOCUMENTATION` | **PASS com ressalvas** |
+
+Restam 25 achados `high`. **Treze já estão corrigidos** e continuam no relatório
+por terem sido medidos sobre um commit anterior — segundo fator por bandeira,
+imagem sem a correção no ar, ROPA/DPIA ausentes, E2E fora do CI, log sem rotação,
+convite que não chegava, imagens por tag mutável, trava da suíte que abortava. Os
+**doze restantes estão assinados em `.accept-risk.md` (R-006)**, cada um com o
+que é, por que não agora, a exposição real e o que destrava.
+
+---
+
+## 5. NÃO VERIFICADO
+
+Isto **não** é a mesma coisa que "provavelmente funciona".
+
+| Item | Situação |
+|---|---|
+| Cobrança real no Asaas | Só o caminho desligado foi exercitado (503 `FEATURE_DISABLED`, zero linhas gravadas). O caminho ligado nunca falou com o gateway — e o serviço segue como o arquivo de menor cobertura de ramos do projeto. Precisa do sandbox do Asaas no CI antes de ligar. |
+| Envio real de WhatsApp | Idem. Sem credencial, responde `FEATURE_DISABLED`. |
+| Publicação em Instagram e e-mail | Não há provedor. A rota recusa com 503 em vez de carimbar `PUBLISHED` — mas o caminho ligado não existe para ser testado. |
+| Cobrança recorrente do próprio SaaS | **Decidido que não existe** (D-05): o vencimento do teste vira `PAST_DUE` e cortar acesso é ato administrativo, auditado. Não é lacuna de verificação; é escopo declarado. |
+| Host de produção | Firewall, TLS na borda, DNS, vizinhos de contêiner — nada disso foi olhado. É o escopo do `ancorar`, que não está instalado. |
+| Lighthouse | Não executado. O orçamento de bundle (130 KB gzip contra 400 KB) foi medido; os quatro pilares, não. |
+| Carga e concorrência real | A cadeia de auditoria foi exercitada com 20 escritas simultâneas, e a unicidade de placa sob corrida com 100 requisições paralelas. Não houve teste de carga do sistema — o que existe é a **medição de saturação** feita por um playbook (`GET /students` vai de 503 ms com 1 conexão a 3 s de p95 com 20), aceita em R-006. |
+| Prática de caos como rotina | Os dois únicos experimentos já executados foram os desta rodada, e um deles achou o defeito mais grave do ciclo. Aceito em R-006, com o próximo trimestre definido. |
+
+O que **saiu** desta lista nesta rodada, com o que passou a prová-lo:
+
+| Antes `NÃO VERIFICADO` | Agora |
+|---|---|
+| Build do contêiner | `docker compose up -d --build` roda a cada rodada; a pilha em modo produção é o alvo do E2E. |
+| E2E do Playwright | 97 cenários, zero pulados. |
+| Restauração de backup | Restauração executada de verdade: 25 tabelas, 3 empresas, 40 alunos. |
+| Rollback de deploy | Exercitado, com o cuidado de não cair na armadilha do `migrate`. |
+| Degradação com o cache fora | Exercitada por experimento de caos, antes e depois da correção: hoje `/health/live` responde em 0,24 s com o Redis congelado, e 20 requisições paralelas a `/students` são todas atendidas. |
+| ROPA e avaliação de impacto (LGPD) | [`LGPD-ROPA-E-DPIA.md`](LGPD-ROPA-E-DPIA.md): registro por finalidade, bases legais separadas, riscos avaliados e as pendências declaradas — uma delas (minimização de IP após 12 meses) implementada junto, com teste. |
+
+---
+
+## 6. Veredito
+
+**CONDITIONAL GO** — 0 gates bloqueados, 0 crítico novo — para operação em
+produção **com cobrança desligada**, que é o estado em que o produto está
+desenhado hoje (D-05).
+
+**NO-GO** para ligar cobrança real sem antes exercitar o gateway e entregar o
+disjuntor no mesmo PR (R-006).
+
+O que sustenta o GO, e foi medido:
+
+- 388 testes contra PostgreSQL real, em **duas rodadas consecutivas com números
+  idênticos**, com o piso de cobertura falhando o build.
+- 97 cenários de ponta a ponta contra a pilha em modo produção, **zero pulados**,
+  agora como job próprio no CI com passo que falha se algum voltar a pular.
+- 19 guardas estáticas, cada uma correspondendo a um defeito que existiu aqui —
+  e as duas mais novas provadas nos dois sentidos.
+- Isolamento entre empresas provado ao vivo, na camada de dados e por HTTP.
+- Criptografia em repouso conferida no disco; banco em TLS 1.3 com verificação da
+  outra ponta e papel de aplicação sem DDL.
+- Backup restaurado de verdade e rollback exercitado.
+- Auditoria independente completa (`blindar` 0.83.2, 171 checks + 53 playbooks),
+  com cada achado ou corrigido ou assinado com prazo.
+- O artefato **no ar** carimbado com o commit, e a verificação pós-deploy
+  conferindo isso — porque uma correção já foi medida contra uma imagem de três
+  horas antes.
+
+O que falta para ligar cobrança, em ordem:
+
+1. Sandbox do Asaas no CI, exercitando criação de cobrança, webhook assinado e
+   conciliação — com o disjuntor entrando junto.
+2. `ancorar` no host de destino: host não verificado não é host aprovado.
+
+Riscos conhecidos e aceitos, com prazo: [`.accept-risk.md`](../.accept-risk.md) —
+11 prazos verificáveis em 6 riscos declarados, nenhum vencido. O CI falha se
+algum vencer.
+
+---
+
+## 7. Como reproduzir esta validação
+
+```bash
+docker compose up -d --build            # pilha completa, modo produção
+cd api && npm ci && npx prisma migrate deploy && npm run prisma:seed
+
+npm run typecheck                       # 0 erros
+npm run test:coverage                   # 379/379, cobertura acima do piso
+cd .. && bash infra/scripts/guards.sh              # 19/19
+node infra/scripts/audit-route-guards.mjs          # 0 rotas sem guarda
+bash infra/scripts/check-accepted-risks.sh         # nenhum prazo vencido
+
+cd web && npx playwright install chromium
+npx playwright test                     # 97/97, zero pulados
+```
+
+**Um aviso que custou caro nesta rodada:** não encadeie a medição com `grep` ou
+`head`. `npx vitest run --coverage | grep "All files"` devolve o exit code do
+`grep` — o piso de cobertura pode estar falhando e a leitura sair "exit 0".
+Redirecione para arquivo e leia o exit code do processo que mediu.

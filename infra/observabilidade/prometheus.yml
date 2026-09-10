@@ -1,0 +1,67 @@
+# ─── Prometheus para o VanPro ────────────────────────────────────────────────
+#
+# O `/api/v1/health/metrics` já existe e é completo (`api/src/lib/metrics.ts`),
+# mas ninguém o raspa. Este arquivo fecha esse laço.
+#
+# Opt-in: sobe pelo compose separado (docker-compose.observabilidade.yml), fora
+# do compose de produção — acrescentar isto ao `docker-compose.yml` mudaria a
+# topologia do deploy sem decisão de ninguém.
+#
+# NÃO verificado contra um Prometheus rodando. É config correta-por-construção
+# contra os alvos e o formato medidos em `api/src/lib/metrics.ts`; a raspagem de
+# fato só se prova no servidor. Antes de subir:
+#   promtool check config infra/observabilidade/prometheus.yml
+#   promtool check rules  infra/observabilidade/alertas.yml
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+
+rule_files:
+  - /etc/prometheus/alertas.yml
+
+scrape_configs:
+  - job_name: vanpro-api
+    # O caminho é `/api/v1/health/metrics` e não `/metrics`: o endpoint mora sob
+    # o prefixo `/health` de propósito, porque o nginx recusa esse prefixo para a
+    # internet (ver `web/nginx.conf`). O Prometheus alcança porque vive DENTRO da
+    # rede docker e fala com o contêiner `api` direto, sem passar pela borda.
+    metrics_path: /api/v1/health/metrics
+    scheme: http
+    static_configs:
+      - targets: ['vanpro-api:3000']
+        labels:
+          ambiente: producao
+
+    # ─── Se o Prometheus for EXTERNO, a topologia deixa de proteger ──────────
+    #
+    # A defesa de hoje é topológica: o endpoint só é alcançável de dentro da
+    # rede docker. Isso é suficiente enquanto o coletor for um contêiner vizinho.
+    #
+    # Um Prometheus gerenciado (Grafana Cloud, outro host, outra VPC) precisa
+    # atravessar a borda, e aí é preciso publicar o caminho no nginx — momento em
+    # que "não é roteado" deixa de ser proteção e vira ausência de proteção.
+    #
+    # Nesse caso, o mínimo é um token comparado em TEMPO CONSTANTE no handler de
+    # `/health/metrics`:
+    #
+    #   const esperado = Buffer.from(env.METRICS_TOKEN);
+    #   const recebido = Buffer.from((req.headers.authorization ?? '').replace(/^Bearer /, ''));
+    #   // timingSafeEqual joga se os tamanhos diferem; comparar o tamanho antes
+    #   // ja vaza, mas so o TAMANHO do token, nao o conteudo.
+    #   if (recebido.length !== esperado.length || !timingSafeEqual(recebido, esperado)) {
+    #     return res.status(404).end();   // 404, nao 401: nao confirma que existe
+    #   }
+    #
+    # Comparar com `===` faz a comparação sair no primeiro byte diferente, e a
+    # diferença de tempo entre "errou no 1º byte" e "errou no 20º" é medível pela
+    # rede em amostragem suficiente — é assim que se descobre um token byte a
+    # byte sem nunca acertá-lo por sorte.
+    #
+    # Com o token ligado, descomente e monte o arquivo (fora do git):
+    #
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/metrics_token
+    #
+    # E ainda assim: restrinja por IP de origem no nginx. Token é a segunda
+    # camada, não a única.

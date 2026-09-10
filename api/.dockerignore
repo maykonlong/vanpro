@@ -1,0 +1,27 @@
+# O que NAO entra na imagem.
+#
+# Sem este arquivo, `COPY . .` leva o `node_modules` da maquina de quem constroi
+# para dentro do contentor — por cima do que o `npm ci` acabou de instalar
+# corretamente para Linux. Foi exatamente o que aconteceu aqui: um `npm i`
+# rodado no Windows trouxe binarios nativos de Windows, eles sobrescreveram os
+# de musl, e o build quebrou com "Cannot find native binding" apontando para
+# um bug do npm — que nao era o problema.
+#
+# O sintoma enganava porque a mensagem acusa a dependencia. A causa era a
+# ausencia deste arquivo.
+node_modules
+dist
+coverage
+.env
+.env.*
+!.env.example
+
+# Nao ha por que colocar historico do git, teste e artefato de IDE numa imagem
+# de producao: aumentam a superficie e o tempo de build sem servir a nada.
+.git
+.gitignore
+*.log
+test-results
+playwright-report
+.vscode
+.idea

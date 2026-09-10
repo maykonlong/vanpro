@@ -1,0 +1,189 @@
+# ─── Regras de alerta sobre o /api/v1/health/metrics do VanPro ───────────────
+#
+# As métricas casam EXATAMENTE com o que `api/src/lib/metrics.ts` expõe (lido no
+# código, não presumido): vanpro_up, vanpro_uptime_seconds, vanpro_memoria_bytes,
+# vanpro_respostas_total, vanpro_requisicao_duracao_ms (histograma),
+# vanpro_sentinela_bloqueios_total, vanpro_violacoes_tenant_total.
+#
+# Princípio da casa: AUSÊNCIA DE SINAL NÃO É SAÚDE. Por isso o PRIMEIRO alerta é
+# o do alvo que sumiu — "parei de ver" precisa disparar, senão um coletor que
+# morreu produz um painel todo verde.
+#
+# NÃO verificado contra um Prometheus rodando. Valide a sintaxe antes de subir:
+#   promtool check rules infra/observabilidade/alertas.yml
+groups:
+  - name: vanpro-disponibilidade
+    rules:
+      # O alerta mais importante do arquivo, e o motivo de ser o primeiro.
+      # `up` é a métrica sintética do próprio Prometheus (1 se a raspagem
+      # funcionou); `absent()` cobre o caso de o job nunca ter subido — sem ele,
+      # um alvo que nunca existiu não dispara nada, porque não há série para
+      # avaliar. Qualquer um dos dois significa a mesma coisa: estamos cegos.
+      - alert: VanProMetricasAusentes
+        expr: up{job="vanpro-api"} == 0 or absent(vanpro_up{job="vanpro-api"})
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: "VanPro: parei de ver as metricas (cego, nao saudavel)"
+          description: "A raspagem falha ha 3m, ou a serie vanpro_up nunca apareceu. Ausencia de sinal nao e aprovacao — trate como indisponibilidade ate provar o contrario."
+
+      - alert: VanProProcessoForaDoAr
+        expr: vanpro_up == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "VanPro: o processo respondeu vanpro_up=0"
+          description: "O app esta de pe o suficiente para responder ao scrape, mas se declara fora do ar ha 2m."
+
+      - alert: VanProReiniciandoEmLaco
+        expr: vanpro_uptime_seconds < 180
+        for: 9m
+        labels: { severity: warning }
+        annotations:
+          summary: "VanPro: uptime baixo repetido — possivel crash-loop"
+          description: "O uptime ficou abaixo de 180s por 9m seguidos: o processo reinicia em laco em vez de rodar. Veja `docker compose logs api` antes que o restart do Docker mascare a causa."
+
+  - name: vanpro-isolamento
+    rules:
+      # ─── Isto NÃO é métrica de painel. É incidente. ────────────────────────
+      #
+      # `vanpro_violacoes_tenant_total` conta consulta que chegou ao Prisma sem
+      # contexto de empresa, ou com empresa divergente da do contexto. Nesta base
+      # isso tem um significado só: um caminho de código escapou do tenant-guard.
+      #
+      # A consequência já aconteceu aqui — foi como o DRE somou o faturamento de
+      # todos os tenants (docs/RELATORIO-VALIDACAO.md §1). Cada incremento é uma
+      # consulta que pode ter lido, ou devolvido, dado de aluno de outra empresa.
+      #
+      # Por isso o limiar é `> 0` e o `for` é `0m`: não existe "um pouquinho de
+      # vazamento", e não há por que esperar a segunda ocorrência para acordar
+      # alguém. A métrica deve viver em zero para sempre.
+      #
+      # `increase(...[5m]) > 0` além do total absoluto: o contador zera no
+      # restart do processo, e sem a janela um vazamento novo depois de um
+      # restart não se distinguiria do contador limpo.
+      - alert: VanProViolacaoDeTenant
+        expr: vanpro_violacoes_tenant_total > 0 or increase(vanpro_violacoes_tenant_total[5m]) > 0
+        for: 0m
+        labels: { severity: critical, incidente: 'lgpd' }
+        annotations:
+          summary: "VanPro: INCIDENTE — consulta sem contexto de empresa ou com empresa divergente"
+          description: "vanpro_violacoes_tenant_total saiu de zero. Isto e vazamento potencial entre empresas, com dado de crianca. Trate como incidente: docs/RUNBOOK-LGPD-BREACH.md, passo 1 (registrar a hora UTC da deteccao — o prazo da ANPD comeca agora)."
+
+      # ─── A trilha parou de gravar ────────────────────────────────────────
+      #
+      # `vanpro_falhas_auditoria_total` nasceu de um incidente real deste
+      # projeto: uma trava mal escrita fez `audit()` estourar em toda chamada, e
+      # como ele engole exceção de propósito — para nunca derrubar a operação
+      # principal — a trilha inteira parou de gravar EM SILÊNCIO. Oito testes
+      # falharam antes de alguém entender o que estava acontecendo.
+      #
+      # Esse silêncio é o preço combinado do desenho, e este alerta é a única
+      # forma de a perda aparecer ANTES de alguém precisar da trilha como prova
+      # e descobrir que ela não existe.
+      #
+      # `> 0` e `0m` pelo mesmo motivo do alerta de tenant: não existe "um
+      # pouquinho de auditoria perdida". O LGPD Art. 37 exige o registro; um
+      # buraco nele é buraco na prova, não estatística.
+      - alert: VanProTrilhaDeAuditoriaFalhando
+        expr: vanpro_falhas_auditoria_total > 0 or increase(vanpro_falhas_auditoria_total[5m]) > 0
+        for: 0m
+        labels: { severity: critical, incidente: 'lgpd' }
+        annotations:
+          summary: "VanPro: a trilha de auditoria deixou de gravar evento"
+          description: "vanpro_falhas_auditoria_total saiu de zero. Cada incremento e um evento que aconteceu no sistema e NAO ficou registrado — e a trilha e o que prova quem fez o que. Procure `falha ao gravar audit log` no log da API; o `err` traz a causa. Enquanto durar, considere a trilha incompleta para efeito de prova."
+
+  - name: vanpro-qualidade-de-servico
+    rules:
+      - alert: VanProErro5xxElevado
+        expr: |
+          sum(rate(vanpro_respostas_total{classe="5xx"}[5m]))
+            /
+          clamp_min(sum(rate(vanpro_respostas_total[5m])), 0.001)
+            > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "VanPro: mais de 5% das respostas sao 5xx"
+          description: "Taxa de erro do servidor sustentada por 5m. O clamp_min evita divisao por zero em periodo sem trafego — sem ele a expressao vira NaN e o alerta nunca dispara justamente na madrugada."
+
+      # ─── Lentidao sustentada, por rota ───────────────────────────────────
+      #
+      # 1,5s de p95 e o ponto em que a pessoa na porta da escola conclui que
+      # "travou" e recarrega — o que dobra a carga exatamente quando ela ja esta
+      # alta.
+      #
+      # O limiar NAO e chute: com uma conexao a listagem de alunos responde em
+      # ~500ms, e a saturacao medida com vinte simultaneas levou o p95 a 3s. O
+      # corte fica entre os dois, na faixa em que ainda da tempo de agir.
+      #
+      # Rotulado por rota de proposito: "o sistema esta lento" nao aciona
+      # ninguem; "/students esta lento" aponta para onde olhar. As rotas ja
+      # chegam como PADRAO (`/students/:id`), nunca com id interpolado — metrica
+      # com id vira indice de quem existe no sistema.
+      #
+      # Primeira suspeita quando disparar: saturacao, e nao consulta lenta. O
+      # calculo de senha ja derrubou a fila principal inteira uma vez neste
+      # projeto (5 tiques de event loop de 51 possiveis), e o sintoma foi
+      # exatamente este — tudo lento, nada quebrado.
+      - alert: VanProLatenciaAlta
+        expr: |
+          (
+            histogram_quantile(
+              0.95,
+              sum(rate(vanpro_requisicao_duracao_ms_bucket[10m])) by (le, rota)
+            )
+            # Sem esta segunda metade, rota SEM trafego produz `NaN` e polui a
+            # avaliacao: foram 70 series numa medicao real, quase todas vazias.
+            # `NaN > 1500` e falso, entao o alerta nao disparava a toa — mas
+            # expressao que a pessoa nao consegue ler no meio do incidente e
+            # tao ruim quanto expressao errada.
+            and on (rota) sum(rate(vanpro_requisicao_duracao_ms_count[10m])) by (rota) > 0
+          ) > 1500
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "VanPro: p95 acima de 1,5s em {{ $labels.rota }}"
+          description: "Latencia sustentada por 10m. Confira primeiro se ha volume incomum em /auth/login: hash de senha e o trabalho mais caro do processo, e ja foi causa de lentidao geral. Depois, consultas lentas no log do Postgres (log_min_duration_statement=500)."
+
+      - alert: VanProSentinelaBloqueandoMuito
+        expr: increase(vanpro_sentinela_bloqueios_total[10m]) > 50
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "VanPro: escudo de borda bloqueou mais de 50 requisicoes em 10m"
+          description: "Ou ha varredura/ataque em curso, ou uma mudanca no front comecou a mandar payload que o Sentinela recusa — e nesse segundo caso usuarios legitimos estao tomando 400. Olhe os logs antes de concluir qual dos dois."
+
+  # Grupo deliberadamente VAZIO. Ver o bloco abaixo: o único alerta que caberia
+  # aqui depende de um limiar que ainda não foi medido, e um limiar chutado é
+  # pior que alerta nenhum.
+  - name: vanpro-recursos
+    rules: []
+      # ─── Limiar de memória: A CALIBRAR COM MEDIÇÃO REAL ────────────────────
+      #
+      # Esta regra está COMENTADA de propósito e não deve ser descomentada com um
+      # número escolhido no chute.
+      #
+      # O projeto irmão usa 700 MiB. Aquele valor foi calibrado para um app de
+      # outro porte, com outra carga e outra caixa; copiá-lo para cá produziria
+      # uma das duas falhas ruins — alerta que grita toda noite (e que a equipe
+      # aprende a ignorar, o que desliga o alerta de verdade), ou limiar tão alto
+      # que só dispara depois do OOM kill, quando já não informa nada.
+      #
+      # Como calibrar, quando houver produção rodando:
+      #   1. Deixe rodar 7 dias com carga real.
+      #   2. Meça o pico:
+      #        max_over_time(vanpro_memoria_bytes{area="rss"}[7d])
+      #   3. Defina o limiar em ~1,5x esse pico, e SEMPRE abaixo do limite de
+      #      memória do contêiner (que hoje o compose nem declara — declare-o
+      #      antes, senão o alerta compete com um teto que não existe).
+      #   4. Escreva aqui o valor E a data da medição, para o próximo saber que
+      #      número é medido e qual é herdado.
+      #
+      # - alert: VanProMemoriaAlta
+      #   expr: vanpro_memoria_bytes{area="rss"} > <A CALIBRAR> * 1024 * 1024
+      #   for: 15m
+      #   labels: { severity: warning }
+      #   annotations:
+      #     summary: "VanPro: RSS acima do limiar por 15m"
+      #     description: "Limiar medido em <data>, sobre pico de 7 dias. Vazamento lento ou carga real."

@@ -1,14 +1,297 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
-:root {
-  --font-family-base: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+/* ==========================================================================
+   VanPro — direção visual "Caderno de bordo"
+
+   O produto vive entre dois objetos: o caderno do dono da frota (papel quente,
+   lido à mesa, no fim do mês) e o celular do motorista (lido às 6h, com sol
+   batendo na tela ou no escuro antes do amanhecer). Daí as duas faces:
+
+   - Claro  = papel. Fundo levemente quente (#FAF9F6), não branco clínico.
+   - Escuro = madrugada. Azul-noite profundo, não cinza neutro.
+
+   A identidade é UMA cor: o âmbar de van escolar. Ela nunca é usada para
+   informar estado — só para dizer "aqui é o VanPro" e marcar a ação principal.
+
+   REGRA DE COR COM SIGNIFICADO
+   ----------------------------
+   O vermelho do prejuízo NÃO é o vermelho do botão de excluir:
+
+   - `loss`   (tijolo/ferrugem)  → dinheiro que faltou. Só texto e números.
+   - `danger` (vermelho vivo)    → ação destrutiva. Só botão preenchido.
+   - `gain`   (verde)            → dinheiro que entrou.
+   - `warn`   (âmbar escuro)     → precisa de atenção, ainda dá para agir.
+
+   Além do tom, a FORMA separa os dois: dinheiro nunca aparece dentro de um
+   botão preenchido, e destruição nunca aparece como número solto.
+
+   ESCADA `ink`
+   ------------
+   `ink` não é "quão escuro", é "distância do plano de conteúdo". Por isso
+   inverte entre os temas e o mesmo utilitário serve aos dois:
+
+     ink-950  fundo da página        ink-600  placeholder
+     ink-900  superfície de cartão   ink-400  texto secundário
+     ink-800  bloco embutido/chip    ink-200  texto do corpo
+     ink-700  borda                  ink-50   título / número forte
+
+   Todo par texto/fundo abaixo foi conferido acima de 4.5:1 (WCAG AA), e os
+   pares de texto grande acima de 3:1.
+   ========================================================================== */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-ink-950: var(--vp-ink-950);
+  --color-ink-900: var(--vp-ink-900);
+  --color-ink-800: var(--vp-ink-800);
+  --color-ink-700: var(--vp-ink-700);
+  --color-ink-600: var(--vp-ink-600);
+  --color-ink-400: var(--vp-ink-400);
+  --color-ink-200: var(--vp-ink-200);
+  --color-ink-50: var(--vp-ink-50);
+
+  --color-brand-400: var(--vp-brand-400);
+  --color-brand-500: var(--vp-brand-500);
+  --color-brand-600: var(--vp-brand-600);
+  /* Texto legível SOBRE o âmbar. Nunca use ink-* em cima de brand. */
+  --color-on-brand: var(--vp-on-brand);
+  /* Fundo levemente tingido de âmbar, para destaque sem virar botão. */
+  --color-brand-soft: var(--vp-brand-soft);
+
+  /* Dinheiro. */
+  --color-gain: var(--vp-gain);
+  --color-loss: var(--vp-loss);
+  --color-gain-soft: var(--vp-gain-soft);
+  --color-loss-soft: var(--vp-loss-soft);
+
+  /* Estado. */
+  --color-good-400: var(--vp-good);
+  --color-warn-400: var(--vp-warn);
+  --color-good-soft: var(--vp-good-soft);
+  --color-warn-soft: var(--vp-warn-soft);
+
+  /* Destruição — exclusivo de ação irreversível. */
+  --color-danger: var(--vp-danger);
+  --color-danger-strong: var(--vp-danger-strong);
+  --color-danger-soft: var(--vp-danger-soft);
+  --color-on-danger: var(--vp-on-danger);
+  /* Aliases herdados: `bad-400` é texto de erro, `bad-500` é a borda/botão. */
+  --color-bad-400: var(--vp-danger);
+  --color-bad-500: var(--vp-danger-strong);
+
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    sans-serif;
+  /* Números de dinheiro alinhados em coluna: tabular, sempre. */
+  --font-numeric: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 0.875rem;
+
+  --shadow-raised: var(--vp-shadow-raised);
+  --shadow-float: var(--vp-shadow-float);
 }
 
-body {
-  margin: 0;
-  font-family: var(--font-family-base);
-  background-color: #0f172a; /* Slate-900 para dark mode pattern */
-  color: #f8fafc; /* Slate-50 */
+/* --------------------------------------------------------------------------
+   Tema claro (padrão). Papel quente.
+   -------------------------------------------------------------------------- */
+:root {
+  --vp-ink-950: #faf9f6;
+  --vp-ink-900: #ffffff;
+  --vp-ink-800: #f1efe8;
+  --vp-ink-700: #ddd9cd;
+  --vp-ink-600: #7d7869;
+  --vp-ink-400: #5b6069; /* 6.4:1 sobre #ffffff, 5.8:1 sobre #f1efe8 */
+  --vp-ink-200: #2b3039;
+  --vp-ink-50: #12151a;
+
+  --vp-brand-400: #ffc44d;
+  --vp-brand-500: #f5a524;
+  --vp-brand-600: #b06f05;
+  --vp-on-brand: #1a1200; /* 11.9:1 sobre #f5a524 */
+  --vp-brand-soft: #fdf3df;
+
+  --vp-gain: #0a6b41; /* 5.6:1 sobre branco */
+  --vp-loss: #9c3218; /* tijolo — 6.4:1 sobre branco */
+  --vp-gain-soft: #e4f4ec;
+  --vp-loss-soft: #fbeae5;
+
+  --vp-good: #0a6b41;
+  --vp-warn: #8a5300; /* 5.5:1 sobre branco */
+  --vp-good-soft: #e4f4ec;
+  --vp-warn-soft: #fbf0d9;
+
+  --vp-danger: #b3231b; /* texto de erro — 6.4:1 sobre branco */
+  --vp-danger-strong: #d0342b; /* preenchimento do botão destrutivo */
+  --vp-danger-soft: #fdeceb;
+  --vp-on-danger: #ffffff; /* 4.9:1 sobre #d0342b */
+
+  --vp-shadow-raised: 0 1px 2px rgb(24 20 10 / 0.06), 0 1px 3px rgb(24 20 10 / 0.06);
+  --vp-shadow-float: 0 12px 32px -8px rgb(24 20 10 / 0.22);
+
+  color-scheme: light;
+}
+
+/* --------------------------------------------------------------------------
+   Tema escuro. Madrugada.
+   -------------------------------------------------------------------------- */
+.dark {
+  --vp-ink-950: #0a0e15;
+  --vp-ink-900: #121822;
+  --vp-ink-800: #1b2331;
+  --vp-ink-700: #2c3746;
+  --vp-ink-600: #6d7889;
+  --vp-ink-400: #9fabbb; /* 6.7:1 sobre #121822 */
+  --vp-ink-200: #dbe3ed;
+  --vp-ink-50: #f6f9fc;
+
+  --vp-brand-400: #ffc247;
+  --vp-brand-500: #f5a524;
+  --vp-brand-600: #ffd27a;
+  --vp-on-brand: #17120a;
+  --vp-brand-soft: #2a2113;
+
+  --vp-gain: #4ade80; /* 8.9:1 sobre #121822 */
+  --vp-loss: #ff9c85; /* tijolo claro — 7.6:1 sobre #121822 */
+  --vp-gain-soft: #10261c;
+  --vp-loss-soft: #2c1712;
+
+  --vp-good: #4ade80;
+  --vp-warn: #fbbf24;
+  --vp-good-soft: #10261c;
+  --vp-warn-soft: #2a2011;
+
+  --vp-danger: #ff9d99; /* 8.1:1 sobre #121822 */
+  --vp-danger-strong: #d32f28;
+  --vp-danger-soft: #2b1414;
+  --vp-on-danger: #ffffff;
+
+  --vp-shadow-raised: 0 1px 2px rgb(0 0 0 / 0.5);
+  --vp-shadow-float: 0 16px 40px -10px rgb(0 0 0 / 0.7);
+
+  color-scheme: dark;
+}
+
+/* --------------------------------------------------------------------------
+   Base
+
+   Tudo aqui vai dentro de `@layer base` de propósito.
+
+   No Tailwind v4 os utilitários vivem em camadas (`@layer utilities`), e CSS
+   SEM camada vence CSS em camada por mais específico que este seja. Uma regra
+   solta `button { min-height: 44px }` no fim do arquivo, portanto, anularia o
+   `min-h-[56px]` do botão grande do motorista — silenciosamente, sem erro de
+   build e sem aviso do lint. Declarar a camada devolve a ordem esperada: base
+   é piso, utilitário é ajuste.
+   -------------------------------------------------------------------------- */
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  html {
+    /* O cabeçalho é fixo: âncora e foco não podem parar embaixo dele. */
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--vp-ink-950);
+    color: var(--vp-ink-200);
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Nenhuma tela pode rolar de lado em 375 px. */
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: var(--vp-ink-50);
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  /* Foco sempre visível — e com contraste nos dois temas. */
+  :focus-visible {
+    outline: 3px solid var(--vp-brand-500);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+
+  /* Alvo de toque mínimo de 44×44 em qualquer controle. */
+  button,
+  a[role='button'],
+  select,
+  [role='tab'] {
+    min-height: 44px;
+  }
+
+  input[type='checkbox'],
+  input[type='radio'] {
+    min-width: 22px;
+    min-height: 22px;
+    accent-color: var(--vp-brand-500);
+  }
+
+  /* Campos herdam a fonte; sem isto o Safari usa a do sistema e desalinha. */
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+  }
+
+  /* Barra de rolagem discreta e coerente com o tema. */
+  * {
+    scrollbar-color: var(--vp-ink-700) transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Dinheiro e contagens em colunas alinhadas. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  /* Link para pular a navegação, visível apenas com foco. */
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 100;
+    padding: 0.75rem 1rem;
+    background: var(--vp-brand-500);
+    color: var(--vp-on-brand);
+    font-weight: 600;
+    border-radius: 0 0 8px 0;
+  }
+
+  .skip-link:focus {
+    left: 0;
+  }
+
+  /* Respiro para a barra inferior do iPhone sob a navegação fixa. */
+  .safe-bottom {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
 }

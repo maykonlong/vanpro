@@ -1,43 +1,360 @@
-name: CI Pipeline
+name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ['main']
   pull_request:
-    branches: [ "main" ]
+    branches: ['main']
+
+# Cancela execucao antiga do mesmo PR: fila de CI competindo consigo mesma
+# atrasa o feedback que justifica ter CI.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+# Toda action e fixada por SHA de commit, com a tag no comentario ao lado.
+#
+# Tag e um ponteiro mutavel: quem controla o repositorio da action pode mover
+# `v4` para outro commit a qualquer momento, e a action roda dentro deste job
+# com o GITHUB_TOKEN do repositorio. Commit nao se move. Renovar o pino e
+# trabalho do Dependabot (ecossistema github-actions em .github/dependabot.yml),
+# que abre PR com o diff visivel — que e exatamente o que a tag esconde.
 
 jobs:
-  build-and-test:
+  api:
+    name: API — tipos, testes e migrations
     runs-on: ubuntu-latest
 
+    # Sem bloco `services:`, de proposito.
+    #
+    # O `services:` do GitHub sobe um Postgres em texto claro, com um usuario
+    # dono de tudo. Producao roda com TLS obrigatorio e com um papel de runtime
+    # sem DDL — entao o CI estaria exercitando um caminho que nao existe mais,
+    # e o caminho que existe nunca seria exercitado. Aqui sobe o MESMO compose,
+    # com o mesmo `pg_hba`, os mesmos papeis e os mesmos certificados.
+    #
+    # Segredos tambem deixam de ser digitados aqui: sao gerados pelo mesmo
+    # script que o desenvolvedor roda. Se ele quebrar, quebra no CI tambem.
+    env:
+      NODE_ENV: test
+
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-    - name: Use Node.js 20
-      uses: actions/setup-node@v3
-      with:
-        node-version: '20'
-        cache: 'npm'
-        cache-dependency-path: '**/package-lock.json'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: api/package-lock.json
 
-    # Backend
-    - name: Install API Dependencies
-      run: npm ci
-      working-directory: ./api
+      # Segredos e certificados sao GERADOS, nunca versionados, pelo mesmo
+      # script que roda na maquina do desenvolvedor. Se ele quebrar, quebra aqui
+      # — e nao no dia em que alguem tenta subir a stack pela primeira vez.
+      - name: Gerar segredos e certificados
+        run: |
+          node infra/scripts/gen-secrets.mjs --write
+          bash infra/scripts/gerar-certificados.sh
 
-    - name: Generate Prisma Client
-      run: npx prisma generate
-      working-directory: ./api
-      
-    - name: Build API
-      run: npm run build
-      working-directory: ./api
+      - name: Subir banco e cache pelo compose de producao
+        run: |
+          docker compose up -d postgres redis
+          for _ in $(seq 1 40); do
+            estado=$(docker inspect -f '{{.State.Health.Status}}' vanpro-postgres 2>/dev/null || echo iniciando)
+            [ "$estado" = healthy ] && break
+            sleep 3
+          done
+          docker compose ps
+          docker exec vanpro-postgres psql -U postgres -tAc 'select version()'
 
-    # Frontend
-    - name: Install Web Dependencies
-      run: npm ci
-      working-directory: ./web
+      # Prova que TLS obrigatorio e menor privilegio EXISTEM, e nao apenas
+      # constam do arquivo de configuracao. Sem esta medicao, "o banco exige
+      # TLS" seria afirmacao nao verificada — e o CI e o unico lugar que roda
+      # em toda mudanca.
+      - name: Banco recusa conexao em claro e o papel de runtime nao tem DDL
+        run: |
+          SENHA_APP=$(grep -E '^POSTGRES_APP_PASSWORD=' .env | cut -d= -f2- | tr -d '"')
 
-    - name: Build Web
-      run: npm run build
-      working-directory: ./web
+          if docker exec vanpro-postgres psql "postgresql://vanpro_app:$SENHA_APP@127.0.0.1:5432/vanpro?sslmode=disable" -c 'select 1' 2>&1 | grep -q 'no encryption'; then
+            echo 'ok: conexao sem TLS recusada pelo pg_hba'
+          else
+            echo 'FALHA: o banco aceitou conexao em claro'; exit 1
+          fi
+
+          if docker exec vanpro-postgres psql -U postgres -d vanpro -c 'SET ROLE vanpro_app; CREATE TABLE guarda_ci(x int);' 2>&1 | grep -q 'permission denied'; then
+            echo 'ok: vanpro_app nao consegue criar tabela'
+          else
+            echo 'FALHA: o papel de runtime tem DDL'; exit 1
+          fi
+
+      # `npm ci`, nunca `npm install`: respeita o lockfile e nao resolve versao
+      # nova sozinho. Mais da metade dos incidentes em Node hoje vem de
+      # dependencia comprometida.
+      - name: Instalar dependencias
+        working-directory: ./api
+        run: npm ci
+
+      - name: Gerar Prisma Client
+        working-directory: ./api
+        run: npx prisma generate
+
+      - name: Verificacao de tipos
+        working-directory: ./api
+        run: npm run typecheck
+
+      - name: Aplicar migrations
+        working-directory: ./api
+        run: npx prisma migrate deploy
+
+      # Prova que as migrations versionadas descrevem o schema. Sem isso, um
+      # `db push` esquecido faz producao divergir do que o CI testou.
+      # O shadow precisa ser um banco VAZIO e separado: apontar para o banco que
+      # acabou de ser migrado compara o schema consigo mesmo e nunca acusa nada.
+      - name: Migrations em dia com o schema
+        working-directory: ./api
+        run: |
+          # Recriar o banco de sombra exige DDL, que o papel de runtime de
+          # proposito nao tem. Quem faz isso e o superusuario, de dentro do
+          # container — como no ambiente real.
+          docker exec vanpro-postgres psql -U postgres -c 'DROP DATABASE IF EXISTS vanpro_shadow'
+          docker exec vanpro-postgres psql -U postgres -c 'CREATE DATABASE vanpro_shadow OWNER vanpro_owner'
+          SENHA=$(grep -E '^POSTGRES_OWNER_PASSWORD=' ../.env | cut -d= -f2- | tr -d '"')
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "postgresql://vanpro_owner:$SENHA@localhost:5433/vanpro_shadow?schema=public&sslmode=require&sslcert=../infra/certs/db/ca.crt&sslaccept=strict" \
+            --exit-code
+
+      - name: Build
+        working-directory: ./api
+        run: npm run build
+
+      - name: Testes com cobertura
+        working-directory: ./api
+        run: npm run test:coverage
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: cobertura-api
+          path: api/coverage/
+          retention-days: 7
+
+  web:
+    name: Web — tipos e build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Instalar dependencias
+        working-directory: ./web
+        run: npm ci
+      - name: Verificacao de tipos
+        working-directory: ./web
+        run: npx tsc --noEmit
+      - name: Lint
+        working-directory: ./web
+        run: npm run lint
+      - name: Build
+        working-directory: ./web
+        run: npm run build
+
+  seguranca:
+    name: Seguranca — dependencias e segredos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Producao BLOQUEIA em high/critical. Auditoria que so informa e ignorada.
+      #
+      # A separacao producao/desenvolvimento e explicita de proposito: o que vai
+      # na imagem tem gate duro; o que fica na maquina do desenvolvedor e
+      # relatado e vive em `.accept-risk.md`, com prazo de revisao. Baixar o
+      # limiar geral para o pipeline ficar verde seria o mesmo que desligar o
+      # alarme por causa de um falso positivo.
+      - name: npm audit — dependencias de PRODUCAO (bloqueia)
+        run: |
+          npm audit --omit=dev --audit-level=high --prefix api
+          npm audit --omit=dev --audit-level=high --prefix web
+
+      - name: npm audit — dependencias de DESENVOLVIMENTO (relata)
+        continue-on-error: true
+        run: |
+          echo "::group::API"; npm audit --audit-level=high --prefix api || true; echo "::endgroup::"
+          echo "::group::Web"; npm audit --audit-level=high --prefix web || true; echo "::endgroup::"
+          echo "Riscos conhecidos e aceitos estao em .accept-risk.md"
+
+      # Risco aceito precisa de prazo. Sem isso a lista vira gaveta.
+      - name: Riscos aceitos ainda dentro do prazo
+        run: bash infra/scripts/check-accepted-risks.sh
+
+      - name: Varredura de segredos
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Guarda estatico: o que ja custou incidente nao volta sem alguem ver.
+      - name: Guardas de regressao
+        run: bash infra/scripts/guards.sh
+
+      # Migration destrutiva quebra o rollback de codigo: a versao anterior deixa
+      # de funcionar contra o schema novo. Remocao passa a exigir aceite escrito
+      # no proprio arquivo, com o motivo.
+      - name: Migrations sem remocao nao declarada
+        run: bash infra/scripts/check-migration-safety.sh
+
+  e2e:
+    name: E2E — a pilha inteira, como o usuario usa
+    runs-on: ubuntu-latest
+    needs: [api, web]
+
+    # Por que este job existe, e por que ele e caro de proposito.
+    #
+    # Os jobs `api` e `web` provam as partes. Nenhum deles prova o produto: o
+    # botao que chama a rota certa, o cookie que atravessa o nginx, o CSRF que
+    # o front manda, a sessao que sobrevive ao proxy. Tres dos defeitos mais
+    # caros deste repositorio — o refresh anonimo que trancava o login de uma
+    # escola inteira, a paginacao inalcancavel e o ponto que mandava bater
+    # entrada quando o servidor ia recusar — so aparecem com a pilha de pe.
+    #
+    # Roda contra o MESMO compose de producao, com TLS, e nao contra o Vite.
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Gerar segredos e certificados
+        run: |
+          node infra/scripts/gen-secrets.mjs --write
+          bash infra/scripts/gerar-certificados.sh
+
+      - name: Subir a pilha completa
+        run: |
+          docker compose up -d --build
+          for _ in $(seq 1 60); do
+            estado=$(docker inspect -f '{{.State.Health.Status}}' vanpro-api 2>/dev/null || echo iniciando)
+            [ "$estado" = healthy ] && break
+            sleep 3
+          done
+          docker inspect -f '{{.State.Health.Status}}' vanpro-api | grep -q healthy
+
+      - name: Semear dados de demonstracao
+        working-directory: api
+        run: |
+          npm ci
+          npm run prisma:seed
+
+      - name: Instalar navegador
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: E2E
+        working-directory: web
+        run: npx playwright test
+
+      # Sem cenario pulado. Pulo e honesto no texto e invisivel no verde: a
+      # suite passava sem nunca ter exercitado cadastro de empresa, upload,
+      # paginacao nem conta suspensa. Este passo falha se algum voltar.
+      - name: Nenhum cenario pulado
+        working-directory: web
+        run: |
+          # Ignora linha de comentario: a explicacao do defeito CITA
+          # `test.skip`, e um guarda que le comentario como codigo aprova
+          # exatamente o que deveria barrar — ja aconteceu duas vezes neste
+          # repositorio, e com tres scanners de mercado.
+          if grep -rnE "^[[:space:]]*(await[[:space:]]+)?test\.skip\(" e2e/*.spec.ts; then
+            echo "FALHA: cenario pulado — crie o estado em vez de declarar nao verificado"
+            exit 1
+          fi
+          echo "ok: nenhum test.skip"
+
+      - name: Diagnostico quando falha
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --tail=120 api web
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
+
+  docker:
+    name: Imagens sobem
+    runs-on: ubuntu-latest
+    needs: [api, web]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # GIT_SHA vai como build-arg para o caminho do carimbo ser exercitado no
+      # CI, e nao so descoberto quebrado no dia do deploy.
+      - name: Build da imagem da API
+        run: docker build --build-arg GIT_SHA="${{ github.sha }}" -t vanpro-api:ci ./api
+
+      # Prova que o carimbo de conteudo existe e nao ficou vazio. Sem esta
+      # linha, um erro no `RUN` do Dockerfile produziria arquivo vazio e o
+      # /health/version responderia "nao-carimbada" numa imagem carimbada.
+      - name: Imagem carrega carimbo de conteudo
+        run: |
+          c=$(docker run --rm --entrypoint sh vanpro-api:ci -c 'cat /app/.versao-conteudo')
+          case "$c" in
+            [0-9a-f][0-9a-f]*) echo "ok: carimbo de conteudo = $c" ;;
+            *) echo "FALHA: /app/.versao-conteudo ausente ou invalido: '$c'"; exit 1 ;;
+          esac
+      - name: Build da imagem do Web
+        run: docker build -t vanpro-web:ci ./web
+      - name: Nenhuma imagem roda como root
+        run: |
+          for img in vanpro-api:ci vanpro-web:ci; do
+            u=$(docker run --rm --entrypoint sh "$img" -c 'id -u')
+            if [ "$u" = "0" ]; then echo "FALHA: $img roda como root"; exit 1; fi
+            echo "ok: $img roda como uid $u"
+          done
+
+      # O `npm audit` do job de seguranca so enxerga o que esta no
+      # package-lock.json. A metade de baixo da imagem — openssl, busybox, zlib
+      # do `node:22-alpine` — nao aparece la, e e onde mora o CVE que ninguem
+      # percebe porque nenhuma ferramenta do repositorio olha.
+      #
+      # `ignore-unfixed`: CVE sem correcao publicada nao vira acao possivel, so
+      # ruido — e pipeline vermelho por algo que nao da para consertar e a forma
+      # mais rapida de a equipe aprender a ignorar o vermelho.
+      - name: Trivy — CVE do sistema de base (API)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: vanpro-api:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Trivy — CVE do sistema de base (Web)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: vanpro-web:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

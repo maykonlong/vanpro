@@ -1,0 +1,14 @@
+# Fonte de dados provisionada por arquivo, e nao clicada na interface.
+#
+# Painel configurado a mao vive na memoria de quem configurou: some no dia em
+# que o volume for perdido, e ninguem lembra como estava. Aqui a configuracao e
+# do repositorio — subir de novo devolve o mesmo painel.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://vanpro-prometheus:9090
+    isDefault: true
+    editable: false

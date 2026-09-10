@@ -1,116 +1,77 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import cookieParser from 'cookie-parser';
-import compression from 'compression';
-import swaggerUi from 'swagger-ui-express';
-import { swaggerSpec } from './swagger';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import * as Sentry from '@sentry/node';
-import { nodeProfilingIntegration } from '@sentry/profiling-node';
-import { logger } from './utils/logger';
+import { createServer } from 'node:http';
+import { env } from './config/env';
+import { logger } from './lib/logger';
+import { prisma } from './lib/prisma';
+import { connectRedis, disconnectRedis } from './lib/redis';
+import { encerrarPoolDeSenha } from './lib/fila-de-senha';
+import { runUnscoped } from './lib/request-context';
+import { createApp } from './http/app';
+import { setupRealtime, closeRealtime } from './realtime/server';
+import { startJobs, stopJobs } from './jobs';
 
-import vehicleRoutes from './routes/vehicleRoutes';
-import studentRoutes from './routes/studentRoutes';
-import financialRoutes from './routes/financialRoutes';
-import timecardRoutes from './routes/timecardRoutes';
-import authRoutes from './routes/authRoutes';
-import webhookRoutes from './routes/webhookRoutes';
-import uploadRoutes from './routes/uploadRoutes';
-import privacyRoutes from './routes/privacyRoutes';
-import crmRoutes from './routes/crmRoutes';
-import { selfRegister } from './controllers/registerController';
-import { authMiddleware } from './middlewares/authMiddleware';
-import { setupWebSockets } from './websockets';
-import './jobs/billingCron';        // Trial & Dunning antigo
-import './jobs/billingDunningCron'; // Fase 31: Dunning avançado
-import './jobs/lgpdCron'; // Iniciar Purge LGPD
-import path from 'path';
-
-const app = express();
-
-// Sentry Config (Crash Reporting)
-Sentry.init({
-  dsn: process.env.SENTRY_DSN || '',
-  integrations: [nodeProfilingIntegration()],
-  tracesSampleRate: 1.0,
-  profilesSampleRate: 1.0,
-});
-Sentry.setupExpressErrorHandler(app);
-
-const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
+// Instalados antes de main(): uma dependencia que rejeita durante o boot
+// (o store do rate limit ja fez isso) derrubaria o processo antes de o
+// tratamento existir, e o log sairia sem contexto nenhum.
+process.on('unhandledRejection', (reason) => {
+  logger.error({ reason }, 'promise rejeitada sem tratamento');
 });
 
-const port = process.env.PORT || 3000;
+async function main() {
+  // Falha aqui e falha de boot, nao de request: melhor nao subir do que subir
+  // sem banco e devolver 500 para todo mundo ate alguem perceber.
+  // GUARDA: sql-cru-auditado — `SELECT 1` nao le tabela nenhuma; roda antes de existir requisicao, e nao ha tenant a isolar.
+  await runUnscoped('boot-db-check', () => prisma.$queryRaw`SELECT 1`);
+  logger.info('banco de dados acessível');
 
-// Security Hardening (Blindar Phase 2)
-app.use(compression());
-app.use(helmet({ crossOriginResourcePolicy: false })); // false para permitir acesso local às imagens do /uploads
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true
-}));
-app.use(express.json({ limit: '100kb' })); // Previne payload bombing
-app.use(cookieParser());
+  await connectRedis();
 
-// WAF Local - Escudo Sentinela (Bloqueia SQLi/NoSQLi/XSS)
-import { sentinelaShield } from './middlewares/sentinelaShield';
-app.use(sentinelaShield());
+  const app = createApp();
+  const httpServer = createServer(app);
 
-// Expor pasta de uploads estaticamente
-app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
+  setupRealtime(httpServer);
+  if (env.ENABLE_CRON) startJobs();
 
-// Rate Limiting Global (Proteção Anti-DDoS Básica)
-const globalLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minuto
-  limit: 200, // Limite de 200 requisições por IP por minuto
-  message: { error: 'Tráfego excessivo. Rate limit global ativado.' }
-});
+  httpServer.listen(env.PORT, () => {
+    logger.info({ port: env.PORT, appEnv: env.APP_ENV }, 'api no ar');
+  });
 
-app.use('/api/', globalLimiter);
+  // Encerramento gracioso: sem isso, um deploy corta requisicao em voo e o
+  // cliente ve erro de rede num POST que talvez tenha sido gravado.
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info({ signal }, 'encerrando');
 
-// Rate Limiting mais estrito para prevenir Brute Force em Login
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  limit: 5, // Limite de 5 requisições por IP
-  message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' }
-});
+    const forced = setTimeout(() => {
+      logger.error('encerramento demorou demais — saindo a força');
+      process.exit(1);
+    }, 15_000);
+    forced.unref();
 
-app.use('/api/v1/auth', authLimiter);
+    stopJobs();
+    await closeRealtime();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    await disconnectRedis();
+    await encerrarPoolDeSenha();
+    await prisma.$disconnect();
 
-// Documentação Swagger OpenAPI
-app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+    logger.info('encerrado');
+    process.exit(0);
+  };
 
-app.get('/api/v1/health', (req, res) => {
-  res.json({ status: 'ok', version: '2.0.0 (VANOS)' });
-});
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 
-// Rota pública de Self-Service Register (Fase 31)
-app.post('/api/v1/register', selfRegister);
+  process.on('uncaughtException', (err) => {
+    // Estado do processo e desconhecido depois disso. Registra e sai: seguir
+    // rodando um processo possivelmente corrompido e como servir dado errado.
+    logger.fatal({ err }, 'exceção não capturada — encerrando');
+    void shutdown('uncaughtException');
+  });
+}
 
-app.use('/api/v1/students', studentRoutes);
-app.use('/api/v1/webhooks', webhookRoutes);
-
-// Rotas Protegidas (Exigem JWT Fingerprint)
-app.use('/api/v1/vehicles', authMiddleware, vehicleRoutes);
-app.use('/api/v1/students', authMiddleware, studentRoutes);
-app.use('/api/v1/financial', authMiddleware, financialRoutes);
-app.use('/api/v1/timecards', authMiddleware, timecardRoutes);
-app.use('/api/v1/uploads', authMiddleware, uploadRoutes);
-app.use('/api/v1/privacy', authMiddleware, privacyRoutes);
-app.use('/api/v1/crm', authMiddleware, crmRoutes);
-
-// Inicializar WebSockets
-setupWebSockets(io);
-
-httpServer.listen(port, () => {
-  console.log(`🚀 API VANOS rodando na porta ${port} (HTTP & WebSockets)`);
+main().catch((err) => {
+  logger.fatal({ err }, 'falha ao iniciar a API');
+  process.exit(1);
 });
