@@ -110,6 +110,8 @@ const NOMES = [
   'Joaquim Estrela', 'Maria Clara Rocha', 'Rafael Trindade', 'Yasmin Aragão',
   'Nicolas Lustosa', 'Rebeca Vilanova', 'Vicente Portela', 'Lorena Guimarães',
   'Otávio Bezerra', 'Clarice Medeiros', 'Caio Mesquita', 'Júlia Sobral',
+  // Os quatro ultimos sao da frota inadimplente (ver "Vai e Vem" abaixo).
+  'Emanuel Tourinho', 'Aurora Belchior', 'Leonardo Praxedes', 'Marina Doria',
 ];
 
 const ESCOLAS = [
@@ -200,6 +202,30 @@ async function main() {
       },
     });
 
+    /*
+     * A quarta empresa existe SUSPENSA, e nao por acidente.
+     *
+     * Um SaaS de verdade sempre tem inadimplente, e o modo somente-leitura e o
+     * caminho mais delicado do produto: a conta continua abrindo, os dados
+     * continuam visiveis, escrita nenhuma passa — exceto ponto do motorista e
+     * check-in de aluno, que nao podem parar porque a van ja esta na rua com
+     * crianca dentro. Sem uma empresa nesse estado no banco, esse caminho
+     * inteiro so podia ser lido, nunca exercitado, e o teste
+     * correspondente vivia declarado como NAO VERIFICADO.
+     */
+    const vaiEVem = await prisma.company.upsert({
+      where: { document: '10203040000155' },
+      update: {},
+      create: {
+        name: 'Vai e Vem Transporte Escolar',
+        document: '10203040000155',
+        subscriptionId: free.id,
+        tenantStatus: 'SUSPENDED',
+        latitude: -23.5329,
+        longitude: -46.7918,
+      },
+    });
+
     async function pessoa(
       email: string,
       name: string,
@@ -274,6 +300,12 @@ async function main() {
     const talita = await pessoa('talita@caminhoseguro.com.br', 'Talita Ferro', 'DRIVER', caminhoSeguro.id);
     const denise = await pessoa('denise@exemplo.com.br', 'Denise Cavalcanti', 'PARENT', caminhoSeguro.id);
 
+    // Frota inadimplente: dono, um motorista e um responsavel. Pouca gente de
+    // proposito — o que precisa existir aqui e o ESTADO, nao o volume.
+    await pessoa('gilberto@vaievem.com.br', 'Gilberto Nazareth', 'OWNER', vaiEVem.id);
+    const anderson = await pessoa('anderson@vaievem.com.br', 'Anderson Cruz', 'DRIVER', vaiEVem.id);
+    const solange = await pessoa('solange@exemplo.com.br', 'Solange Bittar', 'PARENT', vaiEVem.id);
+
     // --- frota ------------------------------------------------------------
     const frota = [
       { c: transvan, plate: 'ABC1D23', model: 'Ford Transit Executive 2024', capacity: 15, status: 'IDLE' },
@@ -284,6 +316,7 @@ async function main() {
       { c: rotaSegura, plate: 'GVD3C94', model: 'Fiat Ducato Escolar 2021', capacity: 15, status: 'IDLE' },
       { c: caminhoSeguro, plate: 'PBS5K27', model: 'Peugeot Boxer Minibus 2020', capacity: 15, status: 'IDLE' },
       { c: caminhoSeguro, plate: 'MNC8L46', model: 'Volkswagen Kombi Escolar 2013', capacity: 9, status: 'MAINTENANCE' },
+      { c: vaiEVem, plate: 'TFR6J82', model: 'Citroën Jumper Escolar 2019', capacity: 16, status: 'IDLE' },
     ];
 
     const veiculos = new Map<string, { id: string; companyId: string }>();
@@ -317,6 +350,7 @@ async function main() {
       { c: rotaSegura, u: cristina, nome: 'Cristina Aguiar', turno: 'MORNING', diaria: 158 },
       { c: caminhoSeguro, u: jefferson, nome: 'Jefferson Muniz', turno: 'FULL', diaria: 150 },
       { c: caminhoSeguro, u: talita, nome: 'Talita Ferro', turno: 'AFTERNOON', diaria: 145 },
+      { c: vaiEVem, u: anderson, nome: 'Anderson Cruz', turno: 'FULL', diaria: 155 },
     ];
 
     const motoristas: { id: string; companyId: string; nome: string }[] = [];
@@ -350,6 +384,7 @@ async function main() {
       { empresa: transvan, inicio: 0, total: 18, pai: maria.id },
       { empresa: rotaSegura, inicio: 18, total: 14, pai: joao.id },
       { empresa: caminhoSeguro, inicio: 32, total: 8, pai: denise.id },
+      { empresa: vaiEVem, inicio: 40, total: 4, pai: solange.id },
     ];
 
     const alunosPorEmpresa = new Map<string, string[]>();

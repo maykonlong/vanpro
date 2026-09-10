@@ -40,7 +40,18 @@ const strongSecret = (name: string) =>
       message: `${name} tem valor de exemplo/placeholder - gere um segredo real`,
     });
 
-const schema = z
+/**
+ * Exportado para teste.
+ *
+ * Estas regras sao o que impede o sistema de subir inseguro — segredo fraco,
+ * TLS sem ancora de confianca, `WEBAUTHN_RP_ID` em localhost, gateway ligado
+ * sem token de webhook. Enquanto o schema ficou privado, nenhuma delas tinha
+ * prova: a unica forma de exercitar era subir o processo com o ambiente errado
+ * e ver se ele morria, o que nenhum teste fazia. Exportar o schema torna cada
+ * recusa um caso (`tests/unit/env-schema.test.ts`); `load()` continua privado,
+ * porque ele chama `process.exit`.
+ */
+export const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     APP_ENV: z.enum(['local', 'staging', 'production']).default('local'),
@@ -219,10 +230,10 @@ const schema = z
     }
   });
 
-export type Env = z.infer<typeof schema>;
+export type Env = z.infer<typeof envSchema>;
 
 function load(): Env {
-  const parsed = schema.safeParse(process.env);
+  const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
     const lines = parsed.error.issues.map((i) => `  - ${i.path.join('.') || '(raiz)'}: ${i.message}`);
     // stderr direto: o logger depende do env que acabou de falhar.

@@ -26,6 +26,7 @@ const porRota = new Map<string, Balde>();
 const porStatus = new Map<string, number>();
 let bloqueiosSentinela = 0;
 let violacoesTenant = 0;
+let falhasDeAuditoria = 0;
 const inicio = performance.now();
 
 function baldeDe(chave: string): Balde {
@@ -55,6 +56,10 @@ export function registrarBloqueioSentinela(): void {
 
 export function registrarViolacaoTenant(): void {
   violacoesTenant += 1;
+}
+
+export function registrarFalhaDeAuditoria(): void {
+  falhasDeAuditoria += 1;
 }
 
 function escapar(v: string): string {
@@ -109,6 +114,15 @@ export function renderizarPrometheus(): string {
   linhas.push('# HELP vanpro_violacoes_tenant_total Consultas sem contexto de empresa ou com empresa divergente.');
   linhas.push('# TYPE vanpro_violacoes_tenant_total counter');
   linhas.push(`vanpro_violacoes_tenant_total ${violacoesTenant}`);
+
+  // Tambem deve ficar em ZERO, e pelo mesmo motivo: `audit()` nunca lanca, para
+  // nao derrubar a operacao principal. Isso torna a falha MUDA — foi assim que
+  // uma trava mal escrita parou a trilha inteira sem ninguem notar. Este
+  // contador e a unica forma de a perda aparecer antes de alguem precisar da
+  // trilha como prova e descobrir que ela nao existe.
+  linhas.push('# HELP vanpro_falhas_auditoria_total Eventos que nao puderam ser gravados na trilha.');
+  linhas.push('# TYPE vanpro_falhas_auditoria_total counter');
+  linhas.push(`vanpro_falhas_auditoria_total ${falhasDeAuditoria}`);
 
   return linhas.join('\n') + '\n';
 }

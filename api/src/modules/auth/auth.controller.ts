@@ -651,7 +651,7 @@ router.post(
     if (!user) throw Errors.unauthorized('Sessão inválida.');
 
     if (!(await verifyPassword(currentPassword, user.password))) {
-      throw Errors.invalidCredentials();
+      throw Errors.senhaAtualIncorreta();
     }
     if (await verifyPassword(newPassword, user.password)) {
       throw Errors.conflict('A nova senha precisa ser diferente da atual.');
@@ -779,12 +779,12 @@ router.post('/2fa/disable', authenticate, validate({ body: disableSchema }), asy
 
   // Senha E codigo: desligar o segundo fator com apenas um dos dois faria do
   // cookie roubado uma chave para remover a propria protecao.
-  if (!(await verifyPassword(password, user.password))) throw Errors.invalidCredentials();
+  if (!(await verifyPassword(password, user.password))) throw Errors.senhaAtualIncorreta();
 
   const totpOk = authenticator.verify({ token: code.replace(/\s/g, ''), secret: user.twoFactorSecret });
   if (!totpOk) {
     const { ok } = await consumeRecoveryCode(code, parseRecoveryHashes(user.twoFactorRecoveryCodes));
-    if (!ok) throw Errors.invalidCredentials();
+    if (!ok) throw Errors.senhaAtualIncorreta('Código de verificação incorreto.');
   }
 
   await prisma.user.update({

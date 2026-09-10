@@ -20,6 +20,18 @@ export class AppError extends Error {
 
 export const Errors = {
   unauthorized: (msg = 'Não autenticado.') => new AppError(401, 'UNAUTHENTICATED', msg),
+  /**
+   * Recusa de RECONFERENCIA de credencial, com a sessao intacta.
+   *
+   * Distinto de `invalidCredentials` de proposito: aquele e 401, e o cliente
+   * trata 401 como "sessao acabou" e manda a pessoa para o login. Errar a senha
+   * atual em "Trocar senha" expulsava o usuario sem ele ler o motivo — o
+   * remedio parecia o sintoma. Aqui a sessao continua valida; o que falhou foi
+   * a prova de identidade pedida para a acao sensivel.
+   */
+  senhaAtualIncorreta: (msg = 'Senha atual incorreta.') =>
+    new AppError(403, 'REAUTH_FAILED', msg),
+
   invalidCredentials: () =>
     // Mesma mensagem para usuario inexistente e senha errada: a diferenca entre
     // as duas e uma lista de e-mails validos entregue de graca.

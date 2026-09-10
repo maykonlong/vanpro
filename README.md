@@ -54,15 +54,20 @@ Não há `if (mock)` em lugar nenhum.
 
 | | |
 |---|---|
-| Empresas | 3 (duas ativas, uma em período de teste) |
-| Alunos | 40, com 6 meses de mensalidade e inadimplência desigual |
-| Veículos / motoristas | 8 / 9 cadastros (uma pessoa em duas frotas) |
+| Empresas | 4 (duas ativas, uma em período de teste, uma suspensa) |
+| Alunos | 44, com 6 meses de mensalidade e inadimplência desigual |
+| Veículos / motoristas | 9 / 10 cadastros (uma pessoa em duas frotas) |
 | Ponto | 5 dias úteis por motorista, com as 4 batidas |
 | Despesas | 6 meses × 5 categorias × 3 empresas |
 | Fretamentos | os 4 estados do fluxo, simultâneos |
 
-**Três** empresas de propósito: com duas, um filtro trocado ("pega a outra
-empresa") ainda parece plausível; com três, fica obviamente errado. E 40 alunos
+**Quatro** empresas de propósito. Com duas, um filtro trocado ("pega a outra
+empresa") ainda parece plausível; com três, fica obviamente errado. A quarta —
+**Vai e Vem**, suspensa — existe porque o modo somente-leitura é o caminho mais
+delicado do produto (a conta abre, mostra tudo, não aceita nada, e mesmo assim
+ponto e check-in continuam passando) e, sem uma empresa nesse estado no banco,
+ele só podia ser lido no código: o teste correspondente vivia declarado
+`NÃO VERIFICADO`. E 44 alunos
 em vez de 4 porque N+1, ordenação de nome com acento e filtro que esqueceu o
 `companyId` só aparecem com dezenas de linhas — e todos eles aparecem em
 produção, no primeiro cliente de verdade.
@@ -86,6 +91,9 @@ Senha **`VanPro@Demo2026`** para todas as contas.
 | `joao.pai@exemplo.com.br` | PARENT | Rota Segura Transportes |
 | `sandra@caminhoseguro.com.br` | OWNER | Caminho Seguro *(em teste)* |
 | `denise@exemplo.com.br` | PARENT | Caminho Seguro |
+| `gilberto@vaievem.com.br` | OWNER | Vai e Vem *(suspensa)* |
+| `anderson@vaievem.com.br` | DRIVER | Vai e Vem *(suspensa)* |
+| `solange@exemplo.com.br` | PARENT | Vai e Vem *(suspensa)* |
 
 `joana@freelancer.com.br` existe para exercitar o caso que quebra
 multi-tenancy ingênua: a mesma pessoa com vínculo ativo em duas frotas, com
@@ -179,18 +187,28 @@ testa a unidade, só o banco de verdade testa o sistema.
 
 ```bash
 cd api
-npm test                 # suíte completa
-npm run test:coverage    # com cobertura (piso de 70% falha o build)
+npm test                 # suíte completa — 376 cenários
+npm run test:coverage    # com cobertura (o piso falha o build)
 ```
+
+> Não encadeie a medição com `grep`/`head`: `npx vitest run --coverage | grep ...`
+> devolve o exit code do **`grep`**, e um piso de cobertura reprovado passa a
+> parecer aprovado. Redirecione para arquivo e leia o exit code de quem mediu.
 
 Todo módulo cobre, no mínimo: caminho feliz, borda, negação por papel e
 **tentativa de acesso cruzado entre empresas**.
 
-E2E do front com Playwright:
+E2E do front com Playwright — **97 cenários, zero pulados**, contra a pilha em
+modo produção (nginx + TLS + API + PostgreSQL + Redis), sem stub de rede:
 
 ```bash
-cd web && npx playwright test
+cd web && npx playwright install chromium && npx playwright test
 ```
+
+Cada cenário clica e depois prova o efeito: a requisição saiu, o estado mudou, o
+dado no banco mudou. Não há `test.skip`: cenário que dependia de um estado
+ausente (empresa suspensa, segunda página, segundo dispositivo) passou a
+**criar** esse estado em vez de se declarar não verificado.
 
 ### Guardas de regressão
 
@@ -198,12 +216,14 @@ cd web && npx playwright test
 bash infra/scripts/guards.sh
 ```
 
-15 verificações estáticas, uma para cada defeito que já existiu neste
+17 verificações estáticas, uma para cada defeito que já existiu neste
 repositório: segredo com valor padrão, identificador simulado no banco, `console.*`,
 `as any`, token de sessão no corpo da resposta, filtro de tenant escrito à mão,
 rota sem guarda de papel, webhook sem assinatura, dinheiro em float, SQLite,
-container como root, upload servido estaticamente e prefixo de rota montado duas
-vezes.
+container como root, upload servido estaticamente, prefixo de rota montado duas
+vezes, SQL cru sem justificativa escrita e router montado em mais de um lugar.
+
+O total é contado, não digitado — guarda nova entra na conta sozinha.
 
 O teste prova que a defesa funciona hoje; o guarda prova que ninguém a removeu
 amanhã. Rodam no CI, e reprovam o merge.

@@ -7,6 +7,7 @@ import { webhookLimiter } from '../security/rate-limit';
 
 import authRouter from '../modules/auth/auth.controller';
 import registerRouter from '../modules/tenancy/register.controller';
+import platformRouter from '../modules/tenancy/platform.controller';
 import companyRouter, { publicRouter as companyPublicRouter } from '../modules/tenancy/company.controller';
 import webhooksRouter from '../modules/webhooks/webhooks.controller';
 
@@ -83,6 +84,12 @@ export const MONTAGENS: readonly Montagem[] = [
 
   // --- exigem sessao ------------------------------------------------------
   { prefixo: '/company', router: companyRouter, publico: false, descricao: 'Empresa, plano e equipe' },
+  {
+    prefixo: '/platform',
+    router: platformRouter,
+    publico: false,
+    descricao: 'Console da plataforma — assinatura das frotas (SUPER_ADMIN)',
+  },
   { prefixo: '/students', router: studentsRouter, publico: false, descricao: 'Alunos' },
   { prefixo: '/vehicles', router: vehiclesRouter, publico: false, descricao: 'Veiculos' },
   { prefixo: '/drivers', router: driversRouter, publico: false, descricao: 'Motoristas e holerite' },

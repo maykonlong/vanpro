@@ -33,8 +33,17 @@ async function statusDa(companyId: string) {
   return row!;
 }
 
-describe('suspensao de teste vencido', () => {
-  it('suspende quem venceu e nao encosta em quem ainda esta no prazo', async () => {
+/**
+ * Fim do teste e AVISO, nao corte.
+ *
+ * O job suspendia a empresa quando o trial vencia. So que o produto nunca
+ * emitiu a fatura do proprio plano: era corte por inadimplencia de um boleto
+ * que jamais chegou ao cliente. Enquanto a cobranca recorrente do SaaS nao
+ * existir, o vencimento leva a `PAST_DUE` — e suspender virou ato
+ * administrativo explicito (`PATCH /platform/companies/:id/status`).
+ */
+describe('fim do periodo de teste', () => {
+  it('marca como pendente quem venceu e nao encosta em quem ainda esta no prazo', async () => {
     await runUnscoped('fixture', async () => {
       await prisma.company.update({
         where: { id: alfa.id },
@@ -46,11 +55,12 @@ describe('suspensao de teste vencido', () => {
       });
     });
 
-    await __jobs.suspendExpiredTrials();
+    await __jobs.marcarTrialsVencidos();
 
     const vencida = await statusDa(alfa.id);
-    expect(vencida.tenantStatus).toBe('SUSPENDED');
-    expect(vencida.suspendedAt).not.toBeNull();
+    expect(vencida.tenantStatus).toBe('PAST_DUE');
+    // Nao ha corte: `suspendedAt` continua vazio porque ninguem suspendeu nada.
+    expect(vencida.suspendedAt).toBeNull();
 
     const emDia = await statusDa(beta.id);
     expect(emDia.tenantStatus).toBe('TRIAL');
@@ -63,24 +73,25 @@ describe('suspensao de teste vencido', () => {
       prisma.company.update({ where: { id: paga.id }, data: { trialEndsAt: new Date(Date.now() - 90 * DIA) } }),
     );
 
-    await __jobs.suspendExpiredTrials();
+    await __jobs.marcarTrialsVencidos();
 
     expect((await statusDa(paga.id)).tenantStatus).toBe('ACTIVE');
   });
 
-  it('rodar duas vezes nao muda o resultado nem reescreve a data de suspensao', async () => {
+  it('rodar duas vezes nao muda o resultado', async () => {
     await runUnscoped('fixture', () =>
       prisma.company.update({ where: { id: alfa.id }, data: { trialEndsAt: new Date(Date.now() - DIA) } }),
     );
 
-    await __jobs.suspendExpiredTrials();
+    await __jobs.marcarTrialsVencidos();
     const primeira = await statusDa(alfa.id);
 
-    await __jobs.suspendExpiredTrials();
+    await __jobs.marcarTrialsVencidos();
     const segunda = await statusDa(alfa.id);
 
-    expect(segunda.tenantStatus).toBe('SUSPENDED');
-    expect(segunda.suspendedAt!.getTime()).toBe(primeira.suspendedAt!.getTime());
+    expect(primeira.tenantStatus).toBe('PAST_DUE');
+    expect(segunda.tenantStatus).toBe('PAST_DUE');
+    expect(segunda.suspendedAt).toBeNull();
   });
 });
 

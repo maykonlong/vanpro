@@ -20,17 +20,33 @@ const tasks: ScheduledTask[] = [];
 
 const TZ = 'America/Sao_Paulo';
 
-/** Trial vencido vira SUSPENDED. Roda de hora em hora para nao depender de meia-noite exata. */
-async function suspendExpiredTrials(): Promise<void> {
+/**
+ * Trial vencido vira PAST_DUE — e NAO SUSPENDED.
+ *
+ * A versao anterior cortava a operacao da frota no fim do periodo de teste. O
+ * problema nao era o corte em si: e que o produto nunca emitiu fatura do
+ * proprio plano. `SubscriptionPlan.priceCents` e `SaaSSubscription` existem,
+ * mas cobranca recorrente do SaaS nao foi construida — entao a suspensao
+ * automatica punia inadimplencia de um boleto que jamais chegou ao cliente.
+ *
+ * A decisao aqui e explicita: enquanto a cobranca for feita por fora, o fim do
+ * teste e AVISO, nao corte. `PAST_DUE` deixa a frota trabalhando e acende o
+ * aviso na tela. Cortar o acesso (`SUSPENDED`) passa a ser ato administrativo
+ * da plataforma, com responsavel e registro em trilha — ver
+ * `PATCH /platform/companies/:id/status`.
+ *
+ * Roda de hora em hora para nao depender de meia-noite exata.
+ */
+async function marcarTrialsVencidos(): Promise<void> {
   const now = new Date();
   const result = await runUnscoped('cron-trial', () =>
     prisma.company.updateMany({
       where: { tenantStatus: 'TRIAL', trialEndsAt: { lt: now } },
-      data: { tenantStatus: 'SUSPENDED', suspendedAt: now },
+      data: { tenantStatus: 'PAST_DUE' },
     }),
   );
   if (result.count > 0) {
-    logger.info({ count: result.count }, 'empresas suspensas por fim de período de teste');
+    logger.info({ count: result.count }, 'empresas marcadas como pendentes de pagamento (fim do teste)');
   }
 }
 
@@ -96,7 +112,7 @@ function guarded(name: string, fn: () => Promise<unknown>) {
  * independentes — ou seja, nenhuma trava.
  */
 const exclusivos = {
-  trials: umaRodadaPorVez(suspendExpiredTrials),
+  trials: umaRodadaPorVez(marcarTrialsVencidos),
   overdue: umaRodadaPorVez(markOverdueInvoices),
   lgpdPurge: umaRodadaPorVez(purgeExpiredCredentials),
 } as const;
@@ -114,7 +130,7 @@ export function stopJobs(): void {
 }
 
 /** Exportado para os testes exercitarem a regra sem esperar o relogio. */
-export const __jobs = { suspendExpiredTrials, markOverdueInvoices, purgeExpiredCredentials };
+export const __jobs = { marcarTrialsVencidos, markOverdueInvoices, purgeExpiredCredentials };
 
 /** As mesmas rotinas com a trava de reentrancia — o que o agendador chama. */
 export const __jobsExclusivos = exclusivos;

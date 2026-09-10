@@ -205,7 +205,19 @@ async function refreshSession(): Promise<boolean> {
 
 // `/auth/select-company` entra aqui porque nesse ponto ainda NAO existe cookie
 // de sessao: renovar seria pedir refresh de uma sessao que nunca nasceu.
+/**
+ * Rotas em que um 401 NAO significa "sessao expirada, tente renovar".
+ *
+ * `/auth/me` esta aqui pelo motivo menos obvio e mais caro: e a primeira
+ * chamada do aplicativo, feita antes de existir qualquer cookie. Sem esta
+ * linha, todo visitante anonimo disparava um `POST /auth/refresh` que so podia
+ * dar 401 — e cada um desses consumia a cota de forca bruta do IP inteiro
+ * (10 por 15 min). Numa escola atras de um NAT, navegar pela pagina publica
+ * algumas vezes trancava o login de todo mundo, inclusive de quem digitava a
+ * senha certa.
+ */
 const NO_RETRY = [
+  '/auth/me',
   '/auth/refresh',
   '/auth/login',
   '/auth/2fa/login',
@@ -231,6 +243,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   if (!response.ok) {
     const error = await parseError(response);
+    // Só 401 encerra a sessão. Recusa de RECONFERÊNCIA de senha vem como 403
+    // `REAUTH_FAILED` justamente para não cair aqui: errar a senha atual em
+    // "Trocar senha" expulsava a pessoa para o login sem ela ler o motivo, e o
+    // remédio parecia o sintoma.
     if (error.code === 'UNAUTHENTICATED' || error.status === 401) {
       setCsrfToken(null);
       notify('unauthenticated');

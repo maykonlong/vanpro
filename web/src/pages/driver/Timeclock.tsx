@@ -124,13 +124,28 @@ export function Timeclock() {
     (signal) => api.get('/timecards', { perPage: 10 }, signal),
     [],
   );
+  /*
+   * O turno aberto e PERGUNTADO ao servidor, e nao procurado dentro da pagina
+   * de cartoes recentes.
+   *
+   * A versao anterior fazia `items.find(t => t.status === 'IN_PROGRESS')` sobre
+   * os 10 ultimos. Um turno que ficou aberto de ontem (motorista que esqueceu
+   * de bater a saida — o caso mais comum de todos) cai para fora dessa janela
+   * assim que existem 10 cartoes mais novos. A tela entao dizia "Fora do
+   * turno", liberava o botao "Bater entrada", e o servidor respondia 409: a
+   * interface mandava a pessoa fazer exatamente o que ia falhar.
+   */
+  const turnoAberto = useResource<Paginated<Timecard>>(
+    (signal) => api.get('/timecards', { status: 'IN_PROGRESS', perPage: 1 }, signal),
+    [],
+  );
   const veiculos = useResource<Paginated<Vehicle>>(
     (signal) => api.get('/vehicles', { perPage: 100 }, signal),
     [],
   );
   const punch = useAction();
 
-  const aberto = cartoes.data?.items.find((t) => t.status === 'IN_PROGRESS');
+  const aberto = turnoAberto.data?.items[0];
   const estado = estadoDe(aberto);
   const veiculoAtual = aberto?.vehicleId ?? vehicleId;
 
@@ -165,6 +180,7 @@ export function Timeclock() {
       setKm('');
       setMostrarKm(false);
       cartoes.reload();
+      turnoAberto.reload();
     }
   };
 

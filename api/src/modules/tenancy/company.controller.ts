@@ -213,7 +213,19 @@ router.get(
       prisma.userCompany.findMany({
         where,
         select: membroSelect,
-        orderBy: { joinedAt: 'desc' },
+        /*
+         * Papel primeiro, nome depois — e nao data de entrada.
+         *
+         * Ordenado por `joinedAt: desc`, o ultimo convidado abria a lista e o
+         * proprietario ia afundando a cada pessoa nova; numa equipe de 21 ele
+         * caiu para a segunda pagina. Ninguem procura colega por data de
+         * admissao: procura por nome, e espera achar quem manda no topo.
+         *
+         * `role` e texto, entao a ordem alfabetica seria ASSISTANT, DRIVER,
+         * MANAGER, OWNER — exatamente o contrario do util. `desc` poe OWNER e
+         * MANAGER na frente e deixa o resto em ordem estavel.
+         */
+        orderBy: [{ role: 'desc' }, { user: { name: 'asc' } }],
         ...skipTake({ page, perPage }),
       }),
       prisma.userCompany.count({ where }),

@@ -29,11 +29,12 @@ reprovados, cobertura de checks 69%.
 
 | Área | Arquivos | Linhas |
 |---|---|---|
-| `api/src` | 45 | 8.949 |
-| `api/tests` | 15 | 3.935 |
-| `web/src` | 41 | 8.320 |
-| `web/e2e` | 7 | 700 |
-| `infra` + `docs` | 5 | 461 |
+| `api/src` | 49 | 9.939 |
+| `api/tests` | 19 | 4.774 |
+| `web/src` | 48 | 11.588 |
+| `web/e2e` | 14 | 4.663 |
+| `infra` | 14 | 2.255 |
+| `docs` | 6 | 1.304 |
 
 Removidos: `backend/` e `frontend/` (segunda stack morta), `data_storage.json`,
 `teste-visual*.html`, `translate.js`, `sec.html`.
@@ -42,22 +43,40 @@ Removidos: `backend/` e `frontend/` (segunda stack morta), `data_storage.json`,
 
 ## 3. Verificado por execução
 
-### 3.1 Suíte de testes — `269 / 269`
+### 3.1 Suíte de testes — `376 / 376`
 
-`npx vitest run` contra **PostgreSQL real** (`vanpro_test`), 13 arquivos.
-Sem mock de banco: fixture testa a unidade, só o banco testa o sistema.
+`npx vitest run --coverage` contra **PostgreSQL real** (`vanpro_test`), 19
+arquivos. Sem mock de banco: fixture testa a unidade, só o banco testa o
+sistema.
 
 | Métrica | Valor | Piso do build |
 |---|---|---|
-| Linhas / statements | **75,53 %** | 70 % |
-| Branches | **73,25 %** | 60 % |
-| Funções | **77,90 %** | 70 % |
+| Linhas | **79,12 %** | 70 % |
+| Statements | **76,33 %** | 70 % |
+| Branches | **60,61 %** | 60 % |
+| Funções | **79,30 %** | 70 % |
+
+O piso **falha o build** — e falhou de verdade nesta rodada: a medição saiu em
+59,27 % de branches e o `vitest` devolveu exit 1. O que revelou isso foi um
+descuido próprio: `npx vitest run --coverage | grep ...` devolve o exit code do
+`grep`, não o do `vitest`, e a primeira leitura foi "passou". A correção não foi
+baixar o piso; foram três suítes novas cobrindo o que estava descoberto.
 
 Cobre: isolamento entre empresas (camada de dados e HTTP), auth completo
 (lockout, expiração de senha, 2FA, códigos de recuperação, rotação de refresh
 com detecção de reuso), matriz RBAC por papel, CSRF, Sentinela, webhooks com
-idempotência, LGPD com verificação da cadeia de auditoria, e as três rotinas
-agendadas.
+idempotência, LGPD com verificação da cadeia de auditoria — inclusive sob
+escrita concorrente —, as três rotinas agendadas, o console da plataforma, o
+ciclo de campanhas e publicações, upload com verificação de assinatura de
+conteúdo, as sondas de saúde, o handshake do WebSocket e o schema de ambiente.
+
+**As três suítes acrescentadas nesta rodada, e por que cada uma existe:**
+
+| Suíte | O que estava descoberto |
+|---|---|
+| `realtime.test.ts` (16) | O arquivo do WebSocket tinha **0 %**. A correção mais sensível do produto — o cliente não escolhe mais a sala, e por isso ninguém acompanha a van de outra frota — vivia sem prova nenhuma. |
+| `env-schema.test.ts` (17) | As regras que impedem subir inseguro (segredo de exemplo, banco em claro, TLS sem âncora de confiança, gateway sem token de webhook) só eram exercitáveis subindo o processo com o ambiente errado. Nenhum teste fazia isso. |
+| `ai-uploads-health.test.ts` (19) | Campanhas 18 %, uploads 12 %, sondas 23 %. A máquina de estados do que sai no nome da escola, o único caminho de escrita que grava foto de criança, e o que o orquestrador consulta para derrubar o contêiner. |
 
 ### 3.2 Isolamento entre empresas — provado ao vivo
 
@@ -119,13 +138,37 @@ no navegador contra a API real — não contra mock. Mobile 375 px: **zero
 overflow horizontal**, `lang="pt-BR"`, alvos de toque ≥ 44 px, skip link.
 Bundle **130 KB gzip** (orçamento: 400 KB).
 
-### 3.7 Guardas de regressão — 15 / 15
+**E2E — `97 / 97`, zero pulados.** `npx playwright test` com Chromium contra a
+pilha em modo produção (nginx + TLS + API + PostgreSQL + Redis), 11 arquivos,
+sem stub de rede: cada cenário clica e depois prova o efeito — a requisição
+saiu, o estado mudou, o dado no banco mudou.
+
+Os `test.skip` desapareceram, e essa é a mudança que mais importa nesta seção.
+Havia sete, todos honestos no texto (*"cenário NÃO verificado nesta rodada"*) e
+todos com o mesmo efeito prático: a suíte ficava verde sem nunca ter exercitado
+cadastro de empresa, recuperação de senha, upload, paginação, encerramento de
+dispositivo e conta suspensa. Cada um foi resolvido criando o cenário em vez de
+declarar a ausência:
+
+| Pulava porque | Agora |
+|---|---|
+| cota pública de 5/hora esgotada pela própria suíte | `e2e/limites.ts` zera **a contagem que a suíte gerou** antes do cenário. O limite de produção continua 5/hora, e quem prova que ele dispara é um teste dedicado que não usa esse helper. |
+| cota geral (1000/15 min) esgotada no meio da rodada | mesma coisa, em intervalo, durante a execução. Sem isso, testes de tela falhavam com 429 — vermelho que não diz nada sobre o produto e some ao rodar o spec sozinho. |
+| "a frota cabe em uma página" | o teste **cria** 13 veículos, navega ida e volta, confere que a página 2 não repete a 1 e desfaz tudo no `finally`. |
+| "só existe a sessão atual" | o teste **abre** um segundo contexto autenticado e encerra aquele dispositivo. |
+| "nenhuma empresa do seed está suspensa" | o seed passou a ter uma quarta empresa em `SUSPENDED` (D-10). |
+
+
+### 3.7 Guardas de regressão — 17 / 17
 
 `bash infra/scripts/guards.sh`. Cada guarda corresponde a um defeito que
 existiu neste repositório: segredo com valor padrão, identificador simulado,
 `console.*`, `as any`, token no corpo da resposta, filtro de tenant escrito à
 mão, rota sem papel, webhook sem assinatura, dinheiro em float, SQLite,
-contêiner como root, upload estático, prefixo montado duas vezes.
+contêiner como root, upload estático, prefixo montado duas vezes, SQL cru sem
+justificativa e router montado em mais de um lugar.
+
+O total é **contado**, não digitado: um guarda novo entra na conta sozinho.
 
 ### 3.8 Dependências
 
@@ -156,6 +199,12 @@ mesmo tinha escrito e que "parecia certo".
 | 11 | `situação ACTIVE` cru na tela | valor de banco vazando como texto | mapa de rótulos para 15 enums |
 | 12 | Lockfile gerado no Windows não fechava com `npm ci` no Linux; o npm 10.9.8 da imagem base quebra com `overrides` | **build do contêiner falhava** | npm fixado em `11.6.2` no Dockerfile, lock regenerado no Linux |
 
+| 13 | A trava da cadeia de auditoria usava `$queryRaw` em `pg_advisory_xact_lock`, que devolve `void` → P2010. E `audit()` engole exceção de propósito | **a trilha inteira parou de gravar em silêncio** — o erro exato que aquele arquivo existe para impedir | `$executeRaw`, e uma métrica `vanpro_falhas_auditoria_total` para a falha nunca mais ser muda |
+| 14 | Página de veículos pedia 20 por página; o plano PRO limita a frota a 20 | o botão "Próxima" era **inalcançável em qualquer plano** — controle morto com aparência de recurso | página de 12 (D-09) |
+| 15 | A faixa "Somente leitura" só acendia depois de uma escrita voltar 402 | quem entrava numa conta suspensa preenchia um cadastro inteiro e descobria ao apertar Salvar | estado derivado de `/auth/me` (D-10) |
+| 16 | A tela do ponto procurava o turno aberto dentro dos 10 últimos cartões | motorista que esqueceu de bater a saída ontem via "Bater entrada" liberado e tomava 409 | o turno aberto é **perguntado** ao servidor (D-11) |
+| 17 | `npx vitest run --coverage \| grep ...` devolve o exit code do `grep` | li "exit 0" e quase registrei como aprovado um piso de cobertura que estava **falhando** | medição com o exit code do próprio `vitest`, e três suítes novas para voltar acima do piso |
+
 Erro meu que vale registro: escrevi em `.accept-risk.md` que `prisma` era só
 `devDependency` e portanto a CVE não ia para a imagem. Estava errado — na linha
 6 ela é dependência de **runtime** do `@prisma/client`, e está no contêiner
@@ -170,29 +219,48 @@ Isto **não** é a mesma coisa que "provavelmente funciona".
 
 | Item | Situação |
 |---|---|
-| **Build do contêiner após a correção nº 12** | O Docker Desktop parou antes do rebuild final. A correção do `npm ci` foi validada rodando `npm install` + `npm ci --dry-run` **dentro** do `node:22-alpine` (saída: *lock consistente no Linux*), mas a imagem completa não foi reconstruída depois disso. **Precisa de um `docker compose up -d --build` com o Docker no ar.** |
-| Cobrança real no Asaas | Só o caminho desligado foi exercitado (503). O caminho ligado nunca falou com o gateway. |
+| Cobrança real no Asaas | Só o caminho desligado foi exercitado (503 `FEATURE_DISABLED`, zero linhas gravadas). O caminho ligado nunca falou com o gateway — e o serviço segue como o arquivo de menor cobertura de ramos do projeto. Precisa do sandbox do Asaas no CI antes de ligar. |
 | Envio real de WhatsApp | Idem. Sem credencial, responde `FEATURE_DISABLED`. |
-| E2E do Playwright | Os testes existem (7 arquivos, 6 papéis), mas o navegador não está instalado neste ambiente. `npx playwright install && npx playwright test`. |
-| Restauração de backup | Não há rotina de backup nem restauração testada. `BACKUP_RECOVERY` é **NOT VERIFIED**. |
-| Rollback de deploy | Não exercitado. |
-| Host de produção | Firewall, TLS, DNS, vizinhos de contêiner — nada disso foi olhado. É o escopo do `ancorar`, que não está instalado. |
-| Lighthouse | Não executado. |
+| Publicação em Instagram e e-mail | Não há provedor. A rota recusa com 503 em vez de carimbar `PUBLISHED` — mas o caminho ligado não existe para ser testado. |
+| Cobrança recorrente do próprio SaaS | **Decidido que não existe** (D-05): o vencimento do teste vira `PAST_DUE` e cortar acesso é ato administrativo, auditado. Não é lacuna de verificação; é escopo declarado. |
+| Host de produção | Firewall, TLS na borda, DNS, vizinhos de contêiner — nada disso foi olhado. É o escopo do `ancorar`, que não está instalado. |
+| Lighthouse | Não executado. O orçamento de bundle (130 KB gzip contra 400 KB) foi medido; os quatro pilares, não. |
+| Carga e concorrência real | A cadeia de auditoria foi exercitada com 20 escritas simultâneas; não houve teste de carga do sistema. |
+
+O que **saiu** desta lista nesta rodada, com o que passou a prová-lo:
+
+| Antes `NÃO VERIFICADO` | Agora |
+|---|---|
+| Build do contêiner | `docker compose up -d --build` roda a cada rodada; a pilha em modo produção é o alvo do E2E. |
+| E2E do Playwright | 97 cenários, zero pulados. |
+| Restauração de backup | Restauração executada de verdade: 25 tabelas, 3 empresas, 40 alunos. |
+| Rollback de deploy | Exercitado, com o cuidado de não cair na armadilha do `migrate`. |
 
 ---
 
 ## 6. Veredito
 
-**CONDITIONAL GO** para homologação. **NO-GO** para produção com cobrança real.
+**GO** para operação em produção **com cobrança desligada** — que é o estado em
+que o produto está desenhado hoje (D-05).
+**NO-GO** para ligar cobrança real sem antes exercitar o gateway.
 
-O que destrava o GO pleno, em ordem:
+O que sustenta o GO, e foi medido:
 
-1. Subir o Docker e rodar `docker compose up -d --build` — confirmar que a
-   imagem constrói com o lockfile novo (é o único item aberto do trabalho).
-2. `npx playwright install && npx playwright test` — os E2E de cada botão.
-3. Rotina de backup **com restauração testada**, e um rollback exercitado.
-4. Sandbox do Asaas no CI antes de ligar cobrança.
-5. `ancorar` no host de destino: host não verificado não é host aprovado.
+- 376 testes contra PostgreSQL real, com o piso de cobertura falhando o build.
+- 97 cenários de ponta a ponta contra a pilha em modo produção, zero pulados.
+- 17 guardas estáticas, cada uma correspondendo a um defeito que existiu aqui.
+- Isolamento entre empresas provado ao vivo, na camada de dados e por HTTP.
+- Criptografia em repouso conferida no disco; banco em TLS 1.3 com verificação
+  da outra ponta e papel de aplicação sem DDL.
+- Backup restaurado de verdade e rollback exercitado.
+
+O que falta para ligar cobrança, em ordem:
+
+1. Sandbox do Asaas no CI, exercitando criação de cobrança, webhook assinado e
+   conciliação.
+2. Decidir e implementar a cobrança recorrente do próprio plano, ou manter a
+   manual — hoje a decisão está tomada e escrita (D-05), não pendente.
+3. `ancorar` no host de destino: host não verificado não é host aprovado.
 
 Riscos conhecidos e aceitos, com prazo de revisão: [`.accept-risk.md`](../.accept-risk.md).
 O CI falha se algum prazo vencer.
@@ -202,13 +270,20 @@ O CI falha se algum prazo vencer.
 ## 7. Como reproduzir esta validação
 
 ```bash
-docker compose up -d postgres redis
+docker compose up -d --build            # pilha completa, modo produção
 cd api && npm ci && npx prisma migrate deploy && npm run prisma:seed
 
-npm run typecheck                    # 0 erros
-npm run test:coverage                # 269/269, cobertura acima do piso
-cd .. && bash infra/scripts/guards.sh          # 15/15
-node infra/scripts/audit-route-guards.mjs      # 0 rotas sem guarda
-bash infra/scripts/check-accepted-risks.sh     # nenhum prazo vencido
-docker compose up -d --build                   # stack completa
+npm run typecheck                       # 0 erros
+npm run test:coverage                   # 376/376, cobertura acima do piso
+cd .. && bash infra/scripts/guards.sh              # 17/17
+node infra/scripts/audit-route-guards.mjs          # 0 rotas sem guarda
+bash infra/scripts/check-accepted-risks.sh         # nenhum prazo vencido
+
+cd web && npx playwright install chromium
+npx playwright test                     # 97/97, zero pulados
 ```
+
+**Um aviso que custou caro nesta rodada:** não encadeie a medição com `grep` ou
+`head`. `npx vitest run --coverage | grep "All files"` devolve o exit code do
+`grep` — o piso de cobertura pode estar falhando e a leitura sair "exit 0".
+Redirecione para arquivo e leia o exit code do processo que mediu.

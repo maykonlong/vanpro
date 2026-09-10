@@ -331,6 +331,12 @@ function Mensalidades() {
 // ---------------------------------------------------------------------------
 
 function Despesas({ from, to, onChanged }: { from: string; to: string; onChanged: () => void }) {
+  // Excluir despesa e exclusivo do proprietario (`requireRole('OWNER')` na API).
+  // A tela mostrava o botao para quem tem `canManageFinance`, entao a gestora
+  // clicava, confirmava a exclusao e recebia 403 — um botao que so serve para
+  // frustrar. Alunos, Frota e Fretamentos ja faziam essa distincao.
+  const { hasRole } = useAuth();
+  const podeExcluir = hasRole('OWNER');
   const [page, setPage] = useState(1);
   const [category, setCategory] = useState('');
   const [creating, setCreating] = useState(false);
@@ -441,9 +447,11 @@ function Despesas({ from, to, onChanged }: { from: string; to: string; onChanged
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-medium text-bad-400">{e.amount.formatted}</span>
-                    <Button variant="danger" onClick={() => setRemoving(e)}>
-                      Excluir
-                    </Button>
+                    {podeExcluir && (
+                      <Button variant="danger" onClick={() => setRemoving(e)}>
+                        Excluir
+                      </Button>
+                    )}
                   </div>
                 </Card>
               </li>

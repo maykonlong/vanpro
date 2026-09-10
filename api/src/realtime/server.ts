@@ -27,6 +27,82 @@ interface SocketAuth {
 
 let io: Server | null = null;
 
+/**
+ * Extraido do `io.use` de proposito.
+ *
+ * Enquanto esta decisao morava dentro do middleware do socket.io, ela so era
+ * alcancavel abrindo uma conexao WebSocket de verdade — e o resultado pratico
+ * foi que o arquivo inteiro ficou com 0% de cobertura: o handshake que decide
+ * quem acompanha a van com a crianca dentro nunca tinha sido exercitado por
+ * teste nenhum. Como funcao exportada, cada recusa vira caso de teste
+ * (`tests/integration/realtime.test.ts`) sem precisar de cliente de socket.
+ */
+export async function autenticarHandshake(
+  cookieHeader: string | undefined,
+): Promise<{ ok: true; auth: SocketAuth } | { ok: false; motivo: string }> {
+  try {
+    const cookies = parseCookies(cookieHeader);
+    const token = cookies[cookieNames.ACCESS_COOKIE];
+    if (!token) return { ok: false, motivo: 'não autenticado' };
+
+    const claims = verifyAccessToken(token);
+
+    // Sessao revogada precisa derrubar o socket tambem: um socket aberto
+    // sobreviveria ao logout ate o processo reiniciar.
+    const session = await runUnscoped('ws-session-check', () =>
+      prisma.session.findUnique({
+        where: { id: claims.sid },
+        select: { revokedAt: true, expiresAt: true },
+      }),
+    );
+    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+      return { ok: false, motivo: 'sessão encerrada' };
+    }
+
+    return {
+      ok: true,
+      auth: { userId: claims.sub, role: claims.role, tenantId: claims.tenantId },
+    };
+  } catch {
+    return { ok: false, motivo: 'não autenticado' };
+  }
+}
+
+/** Papeis que podem PUBLICAR posicao. Quem so acompanha nao publica. */
+export function podePublicarPosicao(role: string): boolean {
+  return role === 'DRIVER' || role === 'OWNER' || role === 'MANAGER';
+}
+
+/** Coordenada plausivel. Fora disso e cliente quebrado ou cliente hostil. */
+export function posicaoValida(payload: unknown): payload is {
+  vehicleId: string;
+  latitude: number;
+  longitude: number;
+} {
+  const p = payload as { vehicleId?: unknown; latitude?: unknown; longitude?: unknown };
+  return (
+    typeof p?.vehicleId === 'string' &&
+    /^[0-9a-f-]{36}$/i.test(p.vehicleId) &&
+    typeof p.latitude === 'number' &&
+    typeof p.longitude === 'number' &&
+    Math.abs(p.latitude) <= 90 &&
+    Math.abs(p.longitude) <= 180
+  );
+}
+
+/**
+ * A van pertence a empresa do socket?
+ *
+ * Esta e a linha que impede alguem de assinar a sala de um veiculo de outra
+ * frota — a falha exata da versao anterior, em que o cliente escolhia a sala.
+ */
+export async function veiculoDaEmpresa(vehicleId: string, tenantId: string): Promise<boolean> {
+  const achado = await runUnscoped('ws-vehicle-check', () =>
+    prisma.vehicle.findFirst({ where: { id: vehicleId, companyId: tenantId }, select: { id: true } }),
+  );
+  return Boolean(achado);
+}
+
 function parseCookies(header: string | undefined): Record<string, string> {
   if (!header) return {};
   return Object.fromEntries(
@@ -48,34 +124,10 @@ export function setupRealtime(httpServer: HttpServer): Server {
   });
 
   io.use(async (socket, next) => {
-    try {
-      const cookies = parseCookies(socket.handshake.headers.cookie);
-      const token = cookies[cookieNames.ACCESS_COOKIE];
-      if (!token) return next(new Error('não autenticado'));
-
-      const claims = verifyAccessToken(token);
-
-      // Sessao revogada precisa derrubar o socket tambem: um socket aberto
-      // sobreviveria ao logout ate o processo reiniciar.
-      const session = await runUnscoped('ws-session-check', () =>
-        prisma.session.findUnique({
-          where: { id: claims.sid },
-          select: { revokedAt: true, expiresAt: true },
-        }),
-      );
-      if (!session || session.revokedAt || session.expiresAt < new Date()) {
-        return next(new Error('sessão encerrada'));
-      }
-
-      (socket.data as SocketAuth) = {
-        userId: claims.sub,
-        role: claims.role,
-        tenantId: claims.tenantId,
-      };
-      next();
-    } catch {
-      next(new Error('não autenticado'));
-    }
+    const resultado = await autenticarHandshake(socket.handshake.headers.cookie);
+    if (!resultado.ok) return next(new Error(resultado.motivo));
+    (socket.data as SocketAuth) = resultado.auth;
+    next();
   });
 
   io.on('connection', (socket: Socket) => {
@@ -91,44 +143,21 @@ export function setupRealtime(httpServer: HttpServer): Server {
     // Sala de veiculo: o servidor confere que a van e da empresa do socket.
     socket.on('vehicle:subscribe', async (vehicleId: unknown) => {
       if (typeof vehicleId !== 'string' || !/^[0-9a-f-]{36}$/i.test(vehicleId)) return;
-
-      const belongs = await runUnscoped('ws-vehicle-check', () =>
-        prisma.vehicle.findFirst({
-          where: { id: vehicleId, companyId: auth.tenantId! },
-          select: { id: true },
-        }),
-      );
-      if (!belongs) return;
+      if (!(await veiculoDaEmpresa(vehicleId, auth.tenantId!))) return;
 
       void socket.join(`company:${auth.tenantId}:vehicle:${vehicleId}`);
     });
 
     // Posicao de GPS: so quem dirige publica, e sempre na sala da propria empresa.
     socket.on('vehicle:position', async (payload: unknown) => {
-      if (auth.role !== 'DRIVER' && auth.role !== 'OWNER' && auth.role !== 'MANAGER') return;
-      const p = payload as { vehicleId?: string; latitude?: number; longitude?: number };
-      if (
-        typeof p?.vehicleId !== 'string' ||
-        typeof p.latitude !== 'number' ||
-        typeof p.longitude !== 'number' ||
-        Math.abs(p.latitude) > 90 ||
-        Math.abs(p.longitude) > 180
-      ) {
-        return;
-      }
+      if (!podePublicarPosicao(auth.role)) return;
+      if (!posicaoValida(payload)) return;
+      if (!(await veiculoDaEmpresa(payload.vehicleId, auth.tenantId!))) return;
 
-      const belongs = await runUnscoped('ws-vehicle-check', () =>
-        prisma.vehicle.findFirst({
-          where: { id: p.vehicleId, companyId: auth.tenantId! },
-          select: { id: true },
-        }),
-      );
-      if (!belongs) return;
-
-      io?.to(`company:${auth.tenantId}:vehicle:${p.vehicleId}`).emit('vehicle:position', {
-        vehicleId: p.vehicleId,
-        latitude: p.latitude,
-        longitude: p.longitude,
+      io?.to(`company:${auth.tenantId}:vehicle:${payload.vehicleId}`).emit('vehicle:position', {
+        vehicleId: payload.vehicleId,
+        latitude: payload.latitude,
+        longitude: payload.longitude,
         at: new Date().toISOString(),
       });
     });

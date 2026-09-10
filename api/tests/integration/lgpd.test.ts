@@ -321,3 +321,62 @@ describe('trilha de auditoria', () => {
     expect(res.body.chainIntegrity.ok).toBe(false);
   });
 });
+
+describe('cadeia de auditoria sob concorrencia', () => {
+  /**
+   * Gravar na trilha e ler-o-ultimo-depois-escrever. Sem serializacao, duas
+   * acoes auditadas simultaneas da MESMA empresa liam o mesmo `prevHash` e
+   * criavam dois elos apontando para o mesmo antecessor: a cadeia bifurcava e
+   * `verifyChain` passava a acusar rompimento PARA SEMPRE — a trilha deixava de
+   * servir como prova exatamente quando o sistema estava sendo mais usado.
+   *
+   * Este teste existe porque o defeito so aparece com escrita concorrente, que
+   * e o caso normal em producao e o caso raro numa suite sequencial.
+   */
+  it('escritas simultaneas nao bifurcam a cadeia', async () => {
+    const dono = await autenticar('dono.alfa@teste.com.br');
+
+    // Vinte escritas auditadas ao mesmo tempo, todas na mesma empresa.
+    const emParalelo = Array.from({ length: 20 }, (_, i) =>
+      dono.post('/api/v1/students', {
+        name: `Aluno Concorrente ${i}`,
+        school: 'Escola da Corrida',
+        shift: 'MORNING',
+        monthlyFee: 100,
+      }),
+    );
+    const respostas = await Promise.all(emParalelo);
+    expect(respostas.every((r) => r.status === 201)).toBe(true);
+
+    // A trilha e gravada fora do caminho da resposta; espera ate estabilizar.
+    let anterior = -1;
+    for (let tentativa = 0; tentativa < 40; tentativa++) {
+      const [linha] = await runUnscoped('check', () =>
+        prisma.$queryRaw<Array<{ n: bigint }>>`SELECT count(*) AS n FROM "AuditLog"`,
+      );
+      const agora = Number(linha!.n);
+      if (agora === anterior && agora >= 20) break;
+      anterior = agora;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    const empresa = await runUnscoped('check', () =>
+      prisma.company.findFirst({ where: { document: '11222333000181' }, select: { id: true } }),
+    );
+    const cadeia = await verifyChain(empresa!.id);
+
+    expect(cadeia.checked).toBeGreaterThanOrEqual(20);
+    expect(cadeia.brokenAt, 'a cadeia bifurcou sob escrita concorrente').toBeUndefined();
+    expect(cadeia.ok).toBe(true);
+
+    // Nenhum `prevHash` pode ser reutilizado: dois elos com o mesmo antecessor
+    // sao exatamente a bifurcacao, e `verifyChain` sozinho poderia nao ver o
+    // ramo que ficou de fora da ordenacao.
+    const repetidos = await runUnscoped('check', () =>
+      prisma.$queryRaw<Array<{ prevHash: string; n: bigint }>>`
+        SELECT "prevHash", count(*) AS n FROM "AuditLog"
+        WHERE "prevHash" IS NOT NULL GROUP BY "prevHash" HAVING count(*) > 1`,
+    );
+    expect(repetidos, 'ha prevHash reutilizado — a cadeia tem ramos').toHaveLength(0);
+  });
+});

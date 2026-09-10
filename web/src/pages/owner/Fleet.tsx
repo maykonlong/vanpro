@@ -53,8 +53,16 @@ function Veiculos({
   const [km, setKm] = useState('0');
   const [localError, setLocalError] = useState<string | null>(null);
 
+  /*
+   * 12 por pagina, e nao 20, por um motivo que so aparece cruzando duas
+   * tabelas: o plano PRO limita a frota a 20 veiculos. Com a pagina tambem em
+   * 20, o botao "Proxima" desta lista era inalcancavel em QUALQUER plano que
+   * existe — controle desenhado, testado por inspecao visual e morto na
+   * pratica. Com 12, uma frota no teto do plano ocupa duas paginas e a
+   * navegacao passa a ser exercitavel de verdade (`03-owner-alunos-frota`).
+   */
   const list = useResource<Paginated<Vehicle>>(
-    (signal) => api.get('/vehicles', { page, perPage: 20 }, signal),
+    (signal) => api.get('/vehicles', { page, perPage: 12 }, signal),
     [page],
   );
   const save = useAction();

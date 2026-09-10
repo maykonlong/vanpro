@@ -191,6 +191,21 @@ export class Cliente {
     return this.absorver(res);
   }
 
+  /**
+   * Envio de arquivo (multipart), com a mesma sessao e o mesmo CSRF.
+   *
+   * Existe porque o unico caminho de escrita que nao passa por JSON e o upload
+   * — e era justamente o que nenhum teste exercitava: a validacao de assinatura
+   * do conteudo (magic bytes) e a pasta por empresa viviam sem prova.
+   */
+  async upload(url: string, campo: string, nome: string, buffer: Buffer, tipo: string) {
+    const res = await request(this.express)
+      .post(url)
+      .set(this.header())
+      .attach(campo, buffer, { filename: nome, contentType: tipo });
+    return this.absorver(res);
+  }
+
   /** Para os testes de CSRF: mesma sessao, sem o header. */
   postSemCsrf(url: string, body?: unknown) {
     const h = this.header();

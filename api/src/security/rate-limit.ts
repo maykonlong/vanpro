@@ -130,6 +130,15 @@ export const authLimiter = build('auth', {
   windowMs: 15 * 60 * 1000,
   limit: 10,
   skipSuccessfulRequests: true, // quem acerta a senha nao gasta cota
+  /**
+   * Requisicao que nem chega a apresentar credencial nao e tentativa.
+   *
+   * Um `POST /auth/refresh` sem cookie de refresh so pode dar 401 — nao ha o
+   * que adivinhar ali. Contando essas, qualquer trafego anonimo drenava a cota
+   * de forca bruta do IP e trancava o login de quem tinha a senha certa. A
+   * defesa contra adivinhacao continua inteira: com cookie presente, conta.
+   */
+  skip: (req) => req.path.endsWith('/refresh') && !req.cookies?.refresh_token,
 });
 
 /** Cadastro publico e recuperacao de senha: superficie de abuso e enumeracao. */

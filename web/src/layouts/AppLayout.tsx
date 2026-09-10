@@ -209,6 +209,17 @@ export function AppLayout() {
     ? 'A assinatura desta empresa está suspensa. Você continua vendo tudo, mas nenhuma alteração é aceita até o plano ser regularizado.'
     : 'Seu vínculo com esta empresa foi arquivado. O histórico continua visível, mas você não pode mais registrar nada aqui.';
 
+  /*
+   * Pagamento pendente NAO e somente-leitura: a frota continua trabalhando.
+   *
+   * O fim do periodo de teste deixa a empresa em `PAST_DUE` justamente porque o
+   * produto ainda nao emite a fatura do proprio plano — cortar o acesso por
+   * inadimplencia de um boleto que nunca foi enviado seria punir o cliente pelo
+   * que falta no produto. O que cabe aqui e avisar, e avisar antes de alguem
+   * descobrir por um erro.
+   */
+  const pagamentoPendente = user?.company?.tenantStatus === 'PAST_DUE';
+
   const desktopLink = ({ isActive }: { isActive: boolean }) =>
     `flex min-h-[44px] items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
       isActive
@@ -247,6 +258,18 @@ export function AppLayout() {
             </button>
           </div>
         </div>
+
+        {pagamentoPendente && !somenteLeitura ? (
+          <div role="status" className="border-t border-warn-400/40 bg-warn-soft">
+            <p className="mx-auto flex max-w-7xl items-start gap-2 px-4 py-2 text-xs font-medium text-warn-400 sm:text-sm">
+              <Lock aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
+              <span>
+                <strong>Pagamento pendente.</strong> O período de teste terminou. Nada foi
+                bloqueado — combine a regularização do plano para manter o acesso.
+              </span>
+            </p>
+          </div>
+        ) : null}
 
         {somenteLeitura ? (
           <div role="status" className="border-t border-warn-400/40 bg-warn-soft">

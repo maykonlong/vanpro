@@ -238,11 +238,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [loadMe]);
 
+  /*
+   * A suspensao e conhecida no LOGIN, e nao so depois de um erro.
+   *
+   * A primeira versao daqui acendia a faixa de somente-leitura apenas quando
+   * uma escrita voltava 402 `ACCOUNT_SUSPENDED`. Na pratica: a pessoa entrava
+   * numa conta suspensa, navegava por um app aparentemente normal, preenchia
+   * um cadastro inteiro e so descobria o estado da assinatura ao apertar
+   * "Salvar" e perder o que digitou. O dado sempre esteve em `/auth/me`
+   * (`company.tenantStatus`); ninguem olhava.
+   *
+   * O evento vindo da API continua valendo — cobre a suspensao que acontece
+   * com a sessao ja aberta, sem esperar o proximo `reload()`.
+   */
+  const suspensaoConhecida = user?.company?.tenantStatus === 'SUSPENDED';
+
   const value = useMemo<AuthValue>(
     () => ({
       user,
       status,
-      suspended,
+      suspended: suspended || suspensaoConhecida,
       companies: user?.companies ?? [],
       currentCompanyId: user?.tenantId ?? null,
       switchingCompany,
@@ -263,6 +278,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       status,
       suspended,
+      suspensaoConhecida,
       switchingCompany,
       companyEpoch,
       login,

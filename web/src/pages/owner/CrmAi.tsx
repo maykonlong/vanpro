@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Cake, MessageSquare, Megaphone } from 'lucide-react';
 
-import { api, ApiError } from '../../lib/api';
+import { api } from '../../lib/api';
 import { formatDate, formatDateTime, label } from '../../lib/format';
 import { useAction, useResource } from '../../hooks/useResource';
 import { useFeatures } from '../../context/FeaturesContext';
@@ -252,7 +252,6 @@ function Campanhas() {
   const [template, setTemplate] = useState('');
   const [channel, setChannel] = useState<'WHATSAPP' | 'INSTAGRAM' | 'EMAIL'>('WHATSAPP');
   const [target, setTarget] = useState<'ALL_STUDENTS' | 'ALL_PARENTS' | 'SPECIFIC'>('ALL_PARENTS');
-  const [iaIndisponivel, setIaIndisponivel] = useState<string | null>(null);
 
   const list = useResource<Paginated<Campaign>>(
     (signal) => api.get('/ai/campaigns', { page, perPage: 20 }, signal),
@@ -265,7 +264,6 @@ function Campanhas() {
 
   const create = useAction();
   const toggle = useAction();
-  const gerar = useAction();
   // Aprovar, recusar e publicar são rotas que já existiam na API e não tinham
   // botão nenhum na tela: o rascunho ficava listado sem que ninguém pudesse
   // fazer nada com ele. Uma tela que só renderiza não é uma tela.
@@ -317,27 +315,6 @@ function Campanhas() {
     if (done) list.reload();
   };
 
-  const onGerar = async () => {
-    setIaIndisponivel(null);
-    await gerar.run(async () => {
-      try {
-        await api.post('/ai/posts/generate', {
-          channel,
-          prompt: 'Rascunho de comunicado para os responsáveis.',
-          quantity: 1,
-        });
-      } catch (err) {
-        if (err instanceof ApiError && err.code === 'FEATURE_DISABLED') {
-          setIaIndisponivel(err.message);
-          return true;
-        }
-        throw err;
-      }
-      posts.reload();
-      return true;
-    });
-  };
-
   return (
     <div className="flex flex-col gap-4">
       <Card>
@@ -381,9 +358,6 @@ function Campanhas() {
             <option value="SPECIFIC">Específico</option>
           </SelectInput>
           <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="secondary" loading={gerar.pending} onClick={() => void onGerar()}>
-              Gerar rascunho com IA
-            </Button>
             <Button type="submit" loading={create.pending}>
               Criar campanha
             </Button>
@@ -391,9 +365,20 @@ function Campanhas() {
         </form>
       </Card>
 
-      {iaIndisponivel ? (
-        <FeatureDisabledNotice feature="Assistente de IA" detail={iaIndisponivel} />
-      ) : null}
+      {/*
+        Aviso ANTES do clique, e nao depois do erro.
+
+        Existia aqui um botao "Gerar rascunho com IA" cuja unica resposta
+        possivel era `503 FEATURE_DISABLED`: nao ha provedor de LLM integrado
+        nesta versao. Nao e integracao "por configurar" — e recurso nao
+        construido, e um botao que so sabe falhar e pior que a ausencia dele,
+        porque ensina a pessoa a desconfiar do resto da tela. Ele foi removido;
+        o endpoint continua devolvendo 503 para cliente de API.
+      */}
+      <FeatureDisabledNotice
+        feature="Assistente de IA"
+        detail="Esta versão não gera texto automaticamente. As campanhas e os comunicados são escritos aqui e enviados pelos canais configurados."
+      />
 
       {list.loading ? <SkeletonList rows={3} /> : null}
       {list.error ? <ErrorState message={list.error} onRetry={list.reload} /> : null}

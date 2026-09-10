@@ -102,20 +102,36 @@ Sem isso, o "financeiro" do sistema é uma planilha com login.
 
 ---
 
-## D-05 · O SaaS não cobra a própria assinatura `DECISÃO PENDENTE`
+## D-05 · O SaaS não cobra a própria assinatura `DECIDIDO E APLICADO`
 
-Existem `SubscriptionPlan.priceCents` e `SaaSSubscription`; o trial expira e
-suspende a empresa. Mas **nunca há cobrança do plano**. O produto suspende por
-falta de pagamento de uma fatura que ele nunca emitiu.
+Existem `SubscriptionPlan.priceCents` e `SaaSSubscription`; o trial expirava e
+**suspendia** a empresa. Mas nunca houve cobrança do plano: o produto cortava o
+acesso por inadimplência de uma fatura que ele mesmo jamais emitiu.
 
-Duas saídas honestas, e é decisão de produto:
+**Decisão tomada:** enquanto a cobrança recorrente do SaaS não existir, ela é
+tratada como **manual** — e, sendo manual, o vencimento do teste não pode cortar
+nada sozinho.
 
-1. Implementar a cobrança recorrente do plano via gateway; ou
-2. Assumir no modelo que a cobrança é **manual** (o dono paga por fora e alguém
-   marca como ativa), e a suspensão automática vira apenas *aviso*, não corte.
+O que mudou, em três partes:
 
-O que não pode continuar é a terceira opção atual: suspender por inadimplência
-sem nunca ter cobrado.
+1. **O cron não suspende mais.** `TRIAL` vencido vira `PAST_DUE`. A frota
+   continua trabalhando inteira e a interface avisa, em faixa própria, que o
+   período de teste acabou e o plano precisa ser regularizado. Punir o cliente
+   pelo que falta no produto seria a pior das saídas.
+2. **Suspender virou ato administrativo.** `PATCH /platform/companies/:id/status`
+   exige `SUPER_ADMIN` e um motivo de no mínimo 10 caracteres, e registra a
+   mudança na trilha da **empresa afetada** — que é onde a pergunta "por que eu
+   fiquei fora do ar?" nasce. Suspender preserva leitura, ponto e check-in
+   (D-06); cancelar encerra as sessões.
+3. **O console existe de verdade.** A aba Plataforma lista as frotas com estado,
+   plano e tamanho, e é de lá que a mudança é feita. Antes, aquela tela declarava
+   "não medido" porque não havia rota alguma que atravessasse empresas.
+
+Testes em `api/tests/integration/platform.test.ts` (10 cenários, incluindo a
+recusa para quem opera uma frota) e `api/tests/integration/jobs.test.ts`.
+
+Quando a cobrança recorrente for construída, o passo natural é o gateway marcar
+`PAST_DUE` → `SUSPENDED` pelo mesmo endpoint, com o motivo vindo da fatura.
 
 ---
 
@@ -155,15 +171,94 @@ motorista e monitor. Testes em `tests/integration/auth.test.ts`.
 
 ---
 
-## D-08 · O painel de IA promete o que não entrega `DECISÃO PENDENTE`
+## D-08 · O painel de IA promete o que não entrega `CORRIGIDO`
 
 `POST /ai/posts/generate` responde `503 FEATURE_DISABLED` — o que é a decisão
 certa (a versão anterior gerava texto de template e chamava de IA). Mas a tela
-continua se chamando "CRM e IA" e oferecendo o botão.
+continuava oferecendo o botão "Gerar rascunho com IA", cuja **única resposta
+possível** era esse 503.
 
-Ou se conecta um provedor de LLM de verdade, ou a tela deve dizer, antes do
-clique, que a funcionalidade depende de configuração — em vez de deixar o
-usuário descobrir pelo erro.
+Não é integração "por configurar": não existe provedor de LLM neste produto. Um
+botão que só sabe falhar é pior que a ausência dele, porque ensina a pessoa a
+desconfiar do resto da tela.
+
+**Agora:** o botão foi removido e a tela diz, antes de qualquer clique, que esta
+versão não gera texto automaticamente e que as campanhas são escritas ali e
+enviadas pelos canais configurados. O endpoint continua devolvendo 503 para
+cliente de API — o contrato do servidor não mudou. Teste em
+`web/e2e/05-owner-crm-privacidade-config.spec.ts`.
+
+Quando um provedor for integrado, a decisão de exibir o botão passa a ser a
+mesma de `billing` e `whatsapp`: sonda em `/health/features`, botão só aparece
+com credencial presente.
+
+---
+
+## D-09 · A frota nunca chegava à segunda página `CORRIGIDO`
+
+A lista de veículos pedia 20 por página. O plano PRO — o mais caro que existe —
+limita a frota a 20 veículos.
+
+O botão "Próxima" da tela de frota, portanto, era inalcançável para **qualquer**
+cliente em **qualquer** plano. Não era um caso raro: era código morto com
+aparência de recurso, que passava em revisão visual porque o controle está lá,
+desenhado e bonito, e ninguém consegue clicá-lo.
+
+Achado ao tentar exercitar a paginação num teste: criar veículos até encher a
+segunda página esbarrou no `PLAN_LIMIT_REACHED` do próprio produto.
+
+**Agora:** a lista pagina de 12 em 12 — uma frota no teto do plano ocupa duas
+páginas, e a navegação passa a ser exercitável. O teste em
+`web/e2e/03-owner-alunos-frota.spec.ts` cria os veículos, navega ida e volta,
+confere que a página 2 não repete a 1 e desfaz tudo no `finally`.
+
+---
+
+## D-10 · A conta suspensa parecia normal até alguém apertar Salvar `CORRIGIDO`
+
+A faixa "Somente leitura" só acendia depois que uma escrita voltava `402
+ACCOUNT_SUSPENDED` — porque o front derivava o estado do ERRO, e não do estado.
+
+Na prática: a pessoa entrava, navegava por um aplicativo aparentemente normal,
+preenchia o cadastro inteiro de um aluno e só descobria a suspensão ao apertar
+"Salvar", perdendo o que digitou. A informação estava em `/auth/me`
+(`company.tenantStatus`) desde sempre; ninguém a lia.
+
+**Agora:** `AuthContext` deriva a suspensão do próprio `tenantStatus`, e o
+evento vindo da API continua valendo para a suspensão que acontece com a sessão
+já aberta.
+
+E, mais importante que a correção: o seed passou a ter uma quarta empresa em
+`SUSPENDED` ("Vai e Vem Transporte Escolar"). Sem uma empresa nesse estado no
+banco, o caminho inteiro de somente-leitura — o mais delicado do produto — só
+podia ser lido no código, nunca exercitado, e o teste correspondente vivia
+declarado `NÃO VERIFICADO`. Agora quatro cenários o exercitam: a faixa aparece,
+a leitura continua inteira, a escrita é recusada com 402 pelo servidor, e bater
+ponto continua passando — porque a van já está na rua com criança dentro quando
+o boleto vence.
+
+---
+
+## D-11 · A tela do ponto mandava bater entrada quando o servidor ia recusar `CORRIGIDO`
+
+A tela do motorista descobria o turno aberto com
+`items.find(t => t.status === 'IN_PROGRESS')` sobre a página dos **10 últimos**
+cartões.
+
+O caso mais comum de todos — o motorista que esqueceu de bater a saída ontem —
+empurra esse cartão para fora da janela assim que existem 10 cartões mais novos.
+A tela então dizia "Fora do turno", liberava o botão "Bater entrada", e o
+servidor respondia `409` com "já existe um turno em andamento". A interface
+mandava a pessoa fazer exatamente o que ia falhar, no começo do expediente, com
+a van na porta da escola.
+
+Achado pela suíte de ponta a ponta, e não por leitura: o cenário do ciclo de
+ponto normaliza o estado antes de começar, e a normalização não encontrava o
+turno que o servidor enxergava.
+
+**Agora:** o turno aberto é **perguntado** ao servidor
+(`GET /timecards?status=IN_PROGRESS&perPage=1`), independente de paginação. A
+lista de cartões recentes continua servindo ao histórico, que é o que ela é.
 
 ---
 
