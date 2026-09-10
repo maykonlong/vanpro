@@ -1,10 +1,20 @@
 # Relatório de validação — VanPro
 
-Escopo: reescrita da v2 para produção. Branch `harden/production-ready`.
+Escopo: reescrita da v2 para produção. Branch `harden/production-ready`,
+commit `f8c2421`. Última medição: 2026-09-10.
 
 **Regra que governa este documento:** só entra como verificado o que foi
 **executado e medido**. O que não foi exercitado aparece como `NÃO VERIFICADO`,
 nunca como aprovado — ausência de sinal não é aprovação.
+
+**Veredito:** `CONDITIONAL GO` (§6) — 0 gates bloqueados, 0 crítico novo.
+388/388 na API · 97/97 no E2E · 19/19 guardas · cobertura acima dos quatro pisos.
+
+Documentos irmãos: a lógica de negócio revista está em
+[`REVISAO-DE-DOMINIO.md`](REVISAO-DE-DOMINIO.md) (D-01 a D-11), os riscos
+assinados com prazo em [`.accept-risk.md`](../.accept-risk.md) (R-001 a R-006), o
+inventário de cada botão em [`../web/e2e/INVENTARIO.md`](../web/e2e/INVENTARIO.md)
+e o registro LGPD em [`LGPD-ROPA-E-DPIA.md`](LGPD-ROPA-E-DPIA.md).
 
 ---
 
@@ -29,12 +39,12 @@ reprovados, cobertura de checks 69%.
 
 | Área | Arquivos | Linhas |
 |---|---|---|
-| `api/src` | 49 | 9.939 |
-| `api/tests` | 19 | 4.774 |
-| `web/src` | 48 | 11.588 |
-| `web/e2e` | 14 | 4.663 |
-| `infra` | 14 | 2.255 |
-| `docs` | 6 | 1.304 |
+| `api/src` | 49 | 10.319 |
+| `api/tests` | 22 | 5.870 |
+| `web/src` | 48 | 11.616 |
+| `web/e2e` | 14 | 4.733 |
+| `infra` | 15 | 2.407 |
+| `docs` | 7 | 1.654 |
 
 Removidos: `backend/` e `frontend/` (segunda stack morta), `data_storage.json`,
 `teste-visual*.html`, `translate.js`, `sec.html`.
@@ -43,24 +53,35 @@ Removidos: `backend/` e `frontend/` (segunda stack morta), `data_storage.json`,
 
 ## 3. Verificado por execução
 
-### 3.1 Suíte de testes — `379 / 379`
+### 3.1 Suíte de testes — `388 / 388`
 
-`npx vitest run --coverage` contra **PostgreSQL real** (`vanpro_test`), 20
-arquivos. Sem mock de banco: fixture testa a unidade, só o banco testa o
-sistema.
+`npm run test:coverage` contra **PostgreSQL real** (`vanpro_test`), 20 arquivos.
+Sem mock de banco: fixture testa a unidade, só o banco testa o sistema.
 
 | Métrica | Valor | Piso do build |
 |---|---|---|
-| Linhas | **79,12 %** | 70 % |
-| Statements | **76,33 %** | 70 % |
-| Branches | **60,61 %** | 60 % |
-| Funções | **79,30 %** | 70 % |
+| Linhas | **79,26 %** | 70 % |
+| Statements | **76,49 %** | 70 % |
+| Branches | **60,75 %** | 60 % |
+| Funções | **79,04 %** | 70 % |
 
-O piso **falha o build** — e falhou de verdade nesta rodada: a medição saiu em
-59,27 % de branches e o `vitest` devolveu exit 1. O que revelou isso foi um
-descuido próprio: `npx vitest run --coverage | grep ...` devolve o exit code do
-`grep`, não o do `vitest`, e a primeira leitura foi "passou". A correção não foi
-baixar o piso; foram três suítes novas cobrindo o que estava descoberto.
+Medido **duas vezes consecutivas**, sobre a árvore limpa (`git status` vazio) e
+sem nada mais rodando: os dois números são idênticos e o `vitest` devolveu
+exit 0 nas duas. A reprodutibilidade está aqui de propósito — foi o ponto que um
+agente de auditoria contestou, e a resposta a uma contestação de evidência é
+outra medição, não um argumento.
+
+O piso **falha o build** — e falhou de verdade duas vezes neste ciclo:
+
+1. A medição saiu em 59,27 % de branches e o `vitest` devolveu exit 1. O que
+   escondeu isso foi um descuido próprio: `npx vitest run --coverage | grep ...`
+   devolve o exit code do **`grep`**, e a primeira leitura foi "passou". A
+   correção não foi baixar o piso; foram três suítes novas cobrindo o que estava
+   descoberto.
+2. Duas execuções simultâneas contra o mesmo banco produziram 96 falhas — chave
+   estrangeira violada em fixture, 404 em rota que existe, deadlock no Postgres —
+   todas parecendo defeito de produto. Hoje `npm test` **recusa iniciar** quando
+   outra suíte detém a trava, dizendo o que esperar.
 
 Cobre: isolamento entre empresas (camada de dados e HTTP), auth completo
 (lockout, expiração de senha, 2FA, códigos de recuperação, rotação de refresh
@@ -205,11 +226,82 @@ mesmo tinha escrito e que "parecia certo".
 | 16 | A tela do ponto procurava o turno aberto dentro dos 10 últimos cartões | motorista que esqueceu de bater a saída ontem via "Bater entrada" liberado e tomava 409 | o turno aberto é **perguntado** ao servidor (D-11) |
 | 17 | `npx vitest run --coverage \| grep ...` devolve o exit code do `grep` | li "exit 0" e quase registrei como aprovado um piso de cobertura que estava **falhando** | medição com o exit code do próprio `vitest`, e três suítes novas para voltar acima do piso |
 
+| 18 | `commandTimeout` ausente no cliente de cache | **Redis lento derrubava a API inteira** — o oposto do que o comentário do próprio arquivo prometia | teto por comando, ping da sonda com teto próprio, e a sonda de VIDA movida para a frente do rate limit. Guardas 18 e 19 |
+| 19 | Marca de idempotência do webhook commitava antes do efeito, fora de transação | queda no meio tornava a baixa **irrecuperável**: dinheiro no gateway e o responsável seguindo cobrado | marca e efeito na mesma transação; trilha escrita depois do commit |
+| 20 | Guarda do console conferia a bandeira `isTwoFactorEnabled`, não o fator apresentado | **um toque em passkey abria o console que suspende qualquer frota** | a sessão registra COMO foi autenticada, e o método atravessa a rotação do refresh |
+| 21 | Seed sem guarda de ambiente | `npm run prisma:seed` na janela errada entregava o console a quem leu o README | recusa com `APP_ENV=production`, salvo declaração explícita |
+| 22 | `POST /ai/posts/:id/publish` marcava PUBLISHED sem chamar provedor nenhum | painel dizia "veiculada" sobre mensagem que ninguém enviou | recusa honesta; e o schema não tem campo de telefone, o que é a causa real |
+| 23 | Convite de equipe só devolvia o link em `APP_ENV=local` | **em produção ninguém obtinha o token**: o vínculo expirava em 72h sem servir para nada | link volta para quem o emitiu, em campo copiável |
+| 24 | `/auth/forgot-password` prometia "enviaremos as instruções" | não há provedor de e-mail: a pessoa esperava mensagem que nunca chegaria | a mensagem diz a verdade — e continua idêntica para e-mail cadastrado ou não |
+| 25 | Duas execuções da suíte contra o mesmo banco | 96 falhas parecendo defeito de produto; horas de investigação | trava consultiva + `npm test` que recusa iniciar quando outra suíte está rodando |
+| 26 | TOTP sem tolerância de janela | quem digitava faltando dois segundos recebia "código inválido" tendo feito tudo certo | uma janela para trás, nenhuma para frente (RFC 6238 §5.2) |
+
 Erro meu que vale registro: escrevi em `.accept-risk.md` que `prisma` era só
 `devDependency` e portanto a CVE não ia para a imagem. Estava errado — na linha
 6 ela é dependência de **runtime** do `@prisma/client`, e está no contêiner
 (66,9 MB). O gate de produção falhava de verdade. Corrigido com `override`, e o
 documento agora registra a leitura errada em vez de escondê-la.
+
+---
+
+## 4-B. Auditoria independente — `blindar` 0.83.2, rodada do zero
+
+Estado anterior apagado (`rm -rf .blindar`), 171 agentes determinísticos mais os
+**53 playbooks** executados em subagentes paralelos.
+
+### O que a camada determinística disse, e o que ela era
+
+Primeira saída: **exit 2 (NO-GO), 26 crit e 48 high**. Cada crítico foi conferido
+na fonte, um por um. **Nenhum sobreviveu** — e a frase só vale porque cada
+contraprova está escrita em `.accept-risk.md` (R-005), com o comando que a
+reproduz:
+
+| O que o scanner viu | O que era |
+|---|---|
+| 16 segredos e 3 chaves privadas (gitleaks, trivy) | `.env`, `api/.env.test`, `infra/certs/*.key` — **ignorados pelo git** (`git check-ignore` confirma) e gerados na máquina. O scanner varre a árvore de trabalho, não o histórico. |
+| "Generic API Key" em `ci.yml:53` | o **SHA de 40 caracteres** que fixa `actions/setup-node`. Remover a fixação para calar o detector seria trocar segurança por silêncio. |
+| 6 achados do semgrep | artefatos de cobertura (removidos do disco) e o `DUMMY_HASH` — constante deliberada para gastar o mesmo tempo quando o e-mail não existe. Um hash bcrypt não abre nada; removê-lo reintroduziria o oráculo de tempo. |
+| "uso de MD5" | o comentário em `pg_hba.conf:23` que explica **por que** o banco usa `scram-sha-256` **e não** md5. |
+| "botão sem handler real" | o comentário em `e2e/helpers.ts:433` que explica que um teste ingênuo aprovaria um `onClick={() => {}}`. |
+| "handler financeiro sem audit log" | `webhooks.controller.ts`, que tem **três** chamadas a `audit()`. |
+| "56 endpoints sem guard" | sem `file`, sem `line`. Contraprova: `node infra/scripts/audit-route-guards.mjs` → *69 com guarda, 8 públicos declarados, **0 sem***. |
+
+As três últimas linhas são a mesma armadilha: **o comentário que descreve o
+defeito lido como o defeito**. Custa registrar porque ela pegou também duas
+guardas que eu mesmo escrevi neste ciclo — a de `commandTimeout` e a da sonda de
+vida passavam por causa do próprio comentário que as justifica, até serem
+provadas nos dois sentidos.
+
+### O que os playbooks acharam — e isso valeu a rodada
+
+Cinco defeitos reais, nenhum deles visível para varredura estática:
+
+| # | Defeito | Como apareceu |
+|---|---|---|
+| B-1 | **Cache lento derrubava a API inteira.** `commandTimeout` ausente: com Redis *caído* a recusa de conexão dispara `error` na hora e a degradação é graciosa; com Redis **lento**, a promessa nunca resolve e a requisição HTTP morre esperando | experimento de caos: `docker pause vanpro-redis` → `/health/ready` e `/students` sem resposta em **3 de 3** tentativas com 20s, enquanto a página estática seguia em 200 |
+| B-2 | **O webhook podia perder um pagamento em silêncio.** Marca de idempotência commitava antes do efeito, fora de transação: queda entre as duas deixava o evento marcado e a fatura em aberto, e a retentativa respondia DUPLICADO para sempre | leitura do fluxo por um playbook de arquitetura de eventos |
+| B-3 | **Passkey abria o console da plataforma sem segundo fator.** O guarda conferia `isTwoFactorEnabled` — a bandeira do *cadastro* — e ela continua verdadeira para quem entra por passkey, que com `requireUserVerification: false` prova só posse | achado **na correção anterior**, por remedição |
+| B-4 | **O seed não recusava produção** e sobrescreveria o segredo TOTP do administrador por um publicado no repositório | playbook de backoffice |
+| B-5 | **Publicação dizia "veiculada" sem enviar nada** — e o schema não tem sequer campo de telefone | playbook de arquitetura |
+
+O que mudou por causa deles está nos commits `da819b0`, `0330e89`, `5e9f2e4`,
+`cd0db41` e `f8c2421`.
+
+### Veredito por gate
+
+**CONDITIONAL GO · 0 BLOCKED · 0 crítico novo.**
+
+| Gate | Estado |
+|---|---|
+| `DATABASE` · `OBSERVABILITY` · `BACKUP_RECOVERY` | **PASS** |
+| `SECURITY` · `ARCHITECTURE` · `RUNTIME` · `RESILIENCE` · `PRIVACY` · `QUALITY` · `DEPLOYMENT` · `DOCUMENTATION` | **PASS com ressalvas** |
+
+Restam 25 achados `high`. **Treze já estão corrigidos** e continuam no relatório
+por terem sido medidos sobre um commit anterior — segundo fator por bandeira,
+imagem sem a correção no ar, ROPA/DPIA ausentes, E2E fora do CI, log sem rotação,
+convite que não chegava, imagens por tag mutável, trava da suíte que abortava. Os
+**doze restantes estão assinados em `.accept-risk.md` (R-006)**, cada um com o
+que é, por que não agora, a exposição real e o que destrava.
 
 ---
 
@@ -225,7 +317,8 @@ Isto **não** é a mesma coisa que "provavelmente funciona".
 | Cobrança recorrente do próprio SaaS | **Decidido que não existe** (D-05): o vencimento do teste vira `PAST_DUE` e cortar acesso é ato administrativo, auditado. Não é lacuna de verificação; é escopo declarado. |
 | Host de produção | Firewall, TLS na borda, DNS, vizinhos de contêiner — nada disso foi olhado. É o escopo do `ancorar`, que não está instalado. |
 | Lighthouse | Não executado. O orçamento de bundle (130 KB gzip contra 400 KB) foi medido; os quatro pilares, não. |
-| Carga e concorrência real | A cadeia de auditoria foi exercitada com 20 escritas simultâneas; não houve teste de carga do sistema. |
+| Carga e concorrência real | A cadeia de auditoria foi exercitada com 20 escritas simultâneas, e a unicidade de placa sob corrida com 100 requisições paralelas. Não houve teste de carga do sistema — o que existe é a **medição de saturação** feita por um playbook (`GET /students` vai de 503 ms com 1 conexão a 3 s de p95 com 20), aceita em R-006. |
+| Prática de caos como rotina | Os dois únicos experimentos já executados foram os desta rodada, e um deles achou o defeito mais grave do ciclo. Aceito em R-006, com o próximo trimestre definido. |
 
 O que **saiu** desta lista nesta rodada, com o que passou a prová-lo:
 
@@ -235,35 +328,47 @@ O que **saiu** desta lista nesta rodada, com o que passou a prová-lo:
 | E2E do Playwright | 97 cenários, zero pulados. |
 | Restauração de backup | Restauração executada de verdade: 25 tabelas, 3 empresas, 40 alunos. |
 | Rollback de deploy | Exercitado, com o cuidado de não cair na armadilha do `migrate`. |
+| Degradação com o cache fora | Exercitada por experimento de caos, antes e depois da correção: hoje `/health/live` responde em 0,24 s com o Redis congelado, e 20 requisições paralelas a `/students` são todas atendidas. |
+| ROPA e avaliação de impacto (LGPD) | [`LGPD-ROPA-E-DPIA.md`](LGPD-ROPA-E-DPIA.md): registro por finalidade, bases legais separadas, riscos avaliados e as pendências declaradas — uma delas (minimização de IP após 12 meses) implementada junto, com teste. |
 
 ---
 
 ## 6. Veredito
 
-**GO** para operação em produção **com cobrança desligada** — que é o estado em
-que o produto está desenhado hoje (D-05).
-**NO-GO** para ligar cobrança real sem antes exercitar o gateway.
+**CONDITIONAL GO** — 0 gates bloqueados, 0 crítico novo — para operação em
+produção **com cobrança desligada**, que é o estado em que o produto está
+desenhado hoje (D-05).
+
+**NO-GO** para ligar cobrança real sem antes exercitar o gateway e entregar o
+disjuntor no mesmo PR (R-006).
 
 O que sustenta o GO, e foi medido:
 
-- 379 testes contra PostgreSQL real, com o piso de cobertura falhando o build.
-- 97 cenários de ponta a ponta contra a pilha em modo produção, zero pulados.
-- 19 guardas estáticas, cada uma correspondendo a um defeito que existiu aqui.
+- 388 testes contra PostgreSQL real, em **duas rodadas consecutivas com números
+  idênticos**, com o piso de cobertura falhando o build.
+- 97 cenários de ponta a ponta contra a pilha em modo produção, **zero pulados**,
+  agora como job próprio no CI com passo que falha se algum voltar a pular.
+- 19 guardas estáticas, cada uma correspondendo a um defeito que existiu aqui —
+  e as duas mais novas provadas nos dois sentidos.
 - Isolamento entre empresas provado ao vivo, na camada de dados e por HTTP.
-- Criptografia em repouso conferida no disco; banco em TLS 1.3 com verificação
-  da outra ponta e papel de aplicação sem DDL.
+- Criptografia em repouso conferida no disco; banco em TLS 1.3 com verificação da
+  outra ponta e papel de aplicação sem DDL.
 - Backup restaurado de verdade e rollback exercitado.
+- Auditoria independente completa (`blindar` 0.83.2, 171 checks + 53 playbooks),
+  com cada achado ou corrigido ou assinado com prazo.
+- O artefato **no ar** carimbado com o commit, e a verificação pós-deploy
+  conferindo isso — porque uma correção já foi medida contra uma imagem de três
+  horas antes.
 
 O que falta para ligar cobrança, em ordem:
 
 1. Sandbox do Asaas no CI, exercitando criação de cobrança, webhook assinado e
-   conciliação.
-2. Decidir e implementar a cobrança recorrente do próprio plano, ou manter a
-   manual — hoje a decisão está tomada e escrita (D-05), não pendente.
-3. `ancorar` no host de destino: host não verificado não é host aprovado.
+   conciliação — com o disjuntor entrando junto.
+2. `ancorar` no host de destino: host não verificado não é host aprovado.
 
-Riscos conhecidos e aceitos, com prazo de revisão: [`.accept-risk.md`](../.accept-risk.md).
-O CI falha se algum prazo vencer.
+Riscos conhecidos e aceitos, com prazo: [`.accept-risk.md`](../.accept-risk.md) —
+11 prazos verificáveis em 6 riscos declarados, nenhum vencido. O CI falha se
+algum vencer.
 
 ---
 
